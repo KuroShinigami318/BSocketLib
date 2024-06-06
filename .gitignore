@@ -1,0 +1,5 @@
+/build
+/libs/*
+/Debug
+/Release
+/build_scripts

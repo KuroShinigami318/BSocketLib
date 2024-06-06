@@ -1,0 +1,9 @@
+{
+"libs": [
+ {
+    "name": "common",
+    "prj_name": "CommonLib",
+    "tag": "v6.0.0"
+ }
+]
+}

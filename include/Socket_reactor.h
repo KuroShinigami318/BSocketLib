@@ -1,0 +1,64 @@
+#pragma once
+
+#include "ISocket_reactor.h"
+#include "ISocket.h"
+#include "dynamic_array_buffer.h"
+#include <unordered_map>
+
+class SocketReactor : public ISocketReactor
+{
+public:
+	DeclareScopedEnum(InitType, uint8_t, Bind, Connect);
+public:
+	SocketReactor(InitType i_initType, Socket_AF i_socketAF, std::string i_address, PORT i_port);
+	~SocketReactor();
+	void Update(float);
+	ISocketReactor::Result Run();
+	ISocketReactor::Result RegisterEventHandler(SocketEvent i_event, std::unique_ptr<IEventHandler> i_eventHandler) override;
+	ISocketReactor::Result DeregisterEventHandler(SocketEvent i_event) override;
+
+private:
+	DeclareInnerScopedEnum(Status, uint8_t, InitFailed, InitSuccess, Running, Shuttingdown);
+	struct AccessKey;
+	struct EventData
+	{
+		EventData(std::unique_ptr<IEventHandler> i_eventHandler);
+		std::unique_ptr<IEventHandler> eventHandler;
+		utils::Callback_public_mt<IEventHandler, AccessKey> cb_handleAction;
+	};
+	struct SocketData
+	{
+		SocketData(Socket_AF i_socketAF, Socket_Type i_socketType, Socket_Protocol i_socketProtocol, std::string i_address, PORT i_port)
+			: socketAF(i_socketAF), socketType(i_socketType), socketProtocol(i_socketProtocol), address(i_address), port(i_port)
+		{
+		}
+		Socket_AF socketAF;
+		Socket_Type socketType;
+		Socket_Protocol socketProtocol;
+		std::string address;
+		PORT port;
+	};
+
+private:
+	ISocketReactor::Result ProcessAsyncRawData(void* i_rawData, SocketEvent i_eventType, ISocket* i_socket) override;
+	void Shutdown();
+	void CloseClient(ISocket* i_socket);
+	void HandleError(Status i_status, std::string i_locationFailed);
+
+	SocketData m_socketData;
+	void* m_nativeHandle;
+	utils::dynamic_buffers<uint8_t> m_nativeBuffer;
+	InitType m_initType;
+	Status m_status;
+	std::optional<Error> m_optError;
+	utils::threadpool_config m_workersConfig;
+	utils::message_threadpool m_workerThreadpool;
+	std::vector<utils::async_waitable<void>> m_waitables;
+	std::vector<std::unique_ptr<ISocket>> m_sockets;
+	std::vector<ISocket*> m_socketsToBeClosed;
+	std::unordered_map<SocketEvent, EventData> m_eventsMap;
+	std::recursive_mutex m_mutex;
+};
+
+DefineScopeEnumOperatorImpl(InitType, SocketReactor);
+DefinePrivateScopeEnumOperatorImpl(Status, SocketReactor);
