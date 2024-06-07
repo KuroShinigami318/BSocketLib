@@ -4,6 +4,8 @@
 #include "SocketError.h"
 #include <vector>
 
+class SocketReactor;
+
 class ISocket
 {
 public:
@@ -20,4 +22,8 @@ public:
 	virtual WriteResult WriteBytes(BytesT& i_bytes) = 0;
 	virtual Result WriteBytesAsync(BytesT& i_bytes) = 0;
 	virtual ~ISocket() = default;
+
+private:
+	friend class SocketReactor;
+	virtual void SetBlockProcess(bool i_blocking) = 0;
 };

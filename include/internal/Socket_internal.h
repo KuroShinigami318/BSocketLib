@@ -24,12 +24,14 @@ public:
 	Result ReadBytesAsync(size_t i_size);
 	WriteResult WriteBytes(BytesT& i_bytes);
 	Result WriteBytesAsync(BytesT& i_bytes);
+	void SetBlockProcess(bool i_blocking);
 
 private:
 	friend bool operator==(const Socket_internal& lhs, const Socket_internal& rhs);
 	Socket_d m_socket_d = Socket_d(0);
 	ISocket* m_selfInterface = nullptr;
 	ISocketReactor* m_socketReactor = nullptr;
+	std::atomic_bool m_isBlocking = false;
 };
 
 bool operator==(const Socket_internal& lhs, const Socket_internal& rhs);

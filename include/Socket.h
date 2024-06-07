@@ -19,6 +19,7 @@ public:
 	Result WriteBytesAsync(BytesT& i_bytes) override;
 
 private:
+	void SetBlockProcess(bool i_blocking) override;
 	friend bool operator==(const Socket& lhs, const Socket& rhs);
 	Socket_internal m_socketInternal;
 };

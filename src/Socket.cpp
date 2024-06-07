@@ -65,6 +65,11 @@ ISocket::Result Socket::WriteBytesAsync(BytesT& i_bytes)
 	return Ok();
 }
 
+void Socket::SetBlockProcess(bool i_blocking)
+{
+	m_socketInternal.SetBlockProcess(i_blocking);
+}
+
 bool operator==(const Socket& lhs, const Socket& rhs)
 {
 	return lhs.m_socketInternal == rhs.m_socketInternal;

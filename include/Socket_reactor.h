@@ -57,7 +57,7 @@ private:
 	std::vector<std::unique_ptr<ISocket>> m_sockets;
 	std::vector<ISocket*> m_socketsToBeClosed;
 	std::unordered_map<SocketEvent, EventData> m_eventsMap;
-	std::recursive_mutex m_mutex;
+	std::shared_mutex m_mutex;
 };
 
 DefineScopeEnumOperatorImpl(InitType, SocketReactor);
