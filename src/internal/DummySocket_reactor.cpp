@@ -4,8 +4,18 @@
 
 #if defined(USE_DUMMY_API)
 
+SocketReactor::EventData::EventData(std::unique_ptr<IEventHandler> i_eventHandler)
+	: eventHandler(std::move(i_eventHandler))
+{
+}
+
+
 SocketReactor::SocketReactor(InitType i_initType, Socket_AF i_socketAF, std::string i_address, PORT i_port)
-	: m_initType(i_initType)
+	: m_initType(i_initType), m_nativeHandle(nullptr)
+	, m_workersConfig(utils::threadpool_config(i_initType == InitType::Connect ? 1 : std::thread::hardware_concurrency()))
+	, m_workerThreadpool(m_workersConfig)
+	, m_socketData(i_socketAF, 0, 0, i_address, i_port)
+	, m_status(Status::InitFailed)
 {
 }
 

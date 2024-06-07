@@ -52,4 +52,35 @@
 #define Socket_AF int
 #define Socket_Type int
 #define Socket_Protocol int
+
+#define BS_AF_UNSPEC       0
+#define BS_AF_UNIX         0
+#define BS_AF_INET         0
+#define BS_AF_IMPLINK      0
+#define BS_AF_PUP          0
+#define BS_AF_CHAOS        0
+#define BS_AF_NS           0
+#define BS_AF_IPX          0
+#define BS_AF_ISO          0
+#define BS_AF_OSI          0
+#define BS_AF_ECMA         0
+#define BS_AF_DATAKIT      0
+#define BS_AF_CCITT        0
+#define BS_AF_SNA          0
+#define BS_AF_DECnet       0
+#define BS_AF_DLI          0
+#define BS_AF_LAT          0
+#define BS_AF_HYLINK       0
+#define BS_AF_APPLETALK    0
+#define BS_AF_NETBIOS      0
+#define BS_AF_VOICEVIEW    0
+#define BS_AF_FIREFOX      0
+#define BS_AF_UNKNOWN1     0
+#define BS_AF_BAN          0
+#define BS_AF_ATM          0
+#define BS_AF_INET6        0
+#define BS_AF_CLUSTER      0
+#define BS_AF_12844        0
+#define BS_AF_IRDA         0
+#define BS_AF_NETDES       0
 #endif
