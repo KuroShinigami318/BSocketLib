@@ -540,6 +540,10 @@ ISocketReactor::Result SocketReactor::RegisterEventHandler(SocketEvent i_event, 
 	{
 		return make_error<Error>(ErrorCode::InternalError, "{} event has already been registered!", i_event);
 	}
+	if (i_eventHandler == nullptr || i_event != i_eventHandler->GetEventType())
+	{
+		return make_error<Error>(ErrorCode::InternalError, "{} event mismatch with the given handler!", i_event);
+	}
 	auto eventMap = m_eventsMap.try_emplace(i_event, std::move(i_eventHandler));
 	EventData& eventData = eventMap.first->second;
 	IEventHandler* eventHandler = eventData.eventHandler.get();
