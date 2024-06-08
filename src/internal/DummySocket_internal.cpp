@@ -26,7 +26,7 @@ Socket_internal::SocketResult Socket_internal::Close()
 		return make_error<SocketError>(SocketErrorCode::InvalidSocket);
 	}
 
-	return false;
+	return Ok();
 }
 
 Socket_internal::ReadResult Socket_internal::ReadBytes(size_t i_size)
@@ -39,7 +39,7 @@ Socket_internal::ReadResult Socket_internal::ReadBytes(size_t i_size)
 	return BytesT();
 }
 
-Socket_internal::Result Socket_internal::ReadBytesAsync(size_t i_size)
+Socket_internal::SocketResult Socket_internal::ReadBytesAsync(size_t i_size)
 {
 	if (m_socket_d == BS_INVALID_SOCKET)
 	{
@@ -59,7 +59,7 @@ Socket_internal::WriteResult Socket_internal::WriteBytes(BytesT& i_bytes)
 	return (size_t)0;
 }
 
-Socket_internal::Result Socket_internal::WriteBytesAsync(BytesT& i_bytes)
+Socket_internal::SocketResult Socket_internal::WriteBytesAsync(BytesT& i_bytes)
 {
 	if (m_socket_d == BS_INVALID_SOCKET)
 	{

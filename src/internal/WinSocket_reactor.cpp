@@ -310,7 +310,7 @@ void SocketReactor::Update(float)
 	}));
 }
 
-ISocketReactor::Result SocketReactor::Run()
+ISocketReactor::ReactorResult SocketReactor::Run()
 {
 	if (m_optError.has_value())
 	{
@@ -442,7 +442,7 @@ ISocketReactor::Result SocketReactor::Run()
 	return Ok();
 }
 
-ISocketReactor::Result SocketReactor::ProcessAsyncRawData(void* i_rawData, SocketEvent i_eventType, ISocket* i_socket)
+ISocketReactor::ReactorResult SocketReactor::ProcessAsyncRawData(void* i_rawData, SocketEvent i_eventType, ISocket* i_socket)
 {
 	if (i_socket == nullptr)
 	{
@@ -533,7 +533,7 @@ ISocketReactor::Result SocketReactor::ProcessAsyncRawData(void* i_rawData, Socke
 	return Ok();
 }
 
-ISocketReactor::Result SocketReactor::RegisterEventHandler(SocketEvent i_event, std::unique_ptr<IEventHandler> i_eventHandler)
+ISocketReactor::ReactorResult SocketReactor::RegisterEventHandler(SocketEvent i_event, std::unique_ptr<IEventHandler> i_eventHandler)
 {
 	std::unique_lock lock(m_mutex);
 	if (m_eventsMap.find(i_event) != m_eventsMap.end())
@@ -552,7 +552,7 @@ ISocketReactor::Result SocketReactor::RegisterEventHandler(SocketEvent i_event, 
 	return Ok();
 }
 
-ISocketReactor::Result SocketReactor::DeregisterEventHandler(SocketEvent i_event)
+ISocketReactor::ReactorResult SocketReactor::DeregisterEventHandler(SocketEvent i_event)
 {
 	std::unique_lock lock(m_mutex);
 	if (m_eventsMap.find(i_event) == m_eventsMap.end())

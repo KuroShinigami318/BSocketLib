@@ -10,20 +10,19 @@ class ISocketReactor;
 class Socket_internal
 {
 public:
-	using SocketResult = Result<bool, SocketError>;
 	using BytesT = std::vector<char>;
 	using ReadResult = Result<BytesT, SocketError>;
 	using WriteResult = Result<size_t, SocketError>;
-	using Result = Result<void, SocketError>;
+	using SocketResult = Result<void, SocketError>;
 public:
 	Socket_internal(ISocket* i_selfInterface, ISocketReactor* i_socketReactor = nullptr, Socket_d i_socket_d = BS_INVALID_SOCKET);
 	Socket_d GetNativeSocket() const;
 	Socket_d Open(Socket_AF, Socket_Type, Socket_Protocol);
 	SocketResult Close();
 	ReadResult ReadBytes(size_t i_size);
-	Result ReadBytesAsync(size_t i_size);
+	SocketResult ReadBytesAsync(size_t i_size);
 	WriteResult WriteBytes(BytesT& i_bytes);
-	Result WriteBytesAsync(BytesT& i_bytes);
+	SocketResult WriteBytesAsync(BytesT& i_bytes);
 	void SetBlockProcess(bool i_blocking);
 
 private:

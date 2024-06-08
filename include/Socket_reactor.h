@@ -13,9 +13,9 @@ public:
 	SocketReactor(InitType i_initType, Socket_AF i_socketAF, std::string i_address, PORT i_port);
 	~SocketReactor();
 	void Update(float);
-	ISocketReactor::Result Run();
-	ISocketReactor::Result RegisterEventHandler(SocketEvent i_event, std::unique_ptr<IEventHandler> i_eventHandler) override;
-	ISocketReactor::Result DeregisterEventHandler(SocketEvent i_event) override;
+	ISocketReactor::ReactorResult Run();
+	ISocketReactor::ReactorResult RegisterEventHandler(SocketEvent i_event, std::unique_ptr<IEventHandler> i_eventHandler) override;
+	ISocketReactor::ReactorResult DeregisterEventHandler(SocketEvent i_event) override;
 
 private:
 	DeclareInnerScopedEnum(Status, uint8_t, InitFailed, InitSuccess, Running, Shuttingdown);
@@ -40,7 +40,7 @@ private:
 	};
 
 private:
-	ISocketReactor::Result ProcessAsyncRawData(void* i_rawData, SocketEvent i_eventType, ISocket* i_socket) override;
+	ISocketReactor::ReactorResult ProcessAsyncRawData(void* i_rawData, SocketEvent i_eventType, ISocket* i_socket) override;
 	void Shutdown();
 	void CloseClient(ISocket* i_socket);
 	void HandleError(Status i_status, std::string i_locationFailed);

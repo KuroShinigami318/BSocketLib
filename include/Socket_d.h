@@ -41,6 +41,7 @@
 #define BS_AF_12844        25              // IEEE 1284.4 WG AF
 #define BS_AF_IRDA         26              // IrDA
 #define BS_AF_NETDES       28              // Network Designers OSI & gateway
+
 #elif defined(USE_POSIX_API)
 #define PORT uint16_t
 #define Socket_d int
@@ -48,6 +49,38 @@
 #define Socket_Type int
 #define Socket_Protocol int
 #define BS_INVALID_SOCKET -1
+
+#define BS_AF_UNSPEC       0
+#define BS_AF_UNIX         1
+#define BS_AF_INET         2
+#define BS_AF_IMPLINK      -2
+#define BS_AF_PUP          -3
+#define BS_AF_CHAOS        -4
+#define BS_AF_NS           -5
+#define BS_AF_IPX          4
+#define BS_AF_ISO          -6 
+#define BS_AF_OSI          BS_AF_ISO 
+#define BS_AF_ECMA         -7
+#define BS_AF_DATAKIT      -8
+#define BS_AF_CCITT        -9
+#define BS_AF_SNA          22
+#define BS_AF_DECnet       12
+#define BS_AF_DLI          -10
+#define BS_AF_LAT          -11
+#define BS_AF_HYLINK       -12
+#define BS_AF_APPLETALK    5
+#define BS_AF_NETBIOS      -13
+#define BS_AF_VOICEVIEW    -14
+#define BS_AF_FIREFOX      -15
+#define BS_AF_UNKNOWN1     -16
+#define BS_AF_BAN          -17
+#define BS_AF_ATM          -18
+#define BS_AF_INET6        10
+#define BS_AF_CLUSTER      -19
+#define BS_AF_12844        -20
+#define BS_AF_IRDA         23
+#define BS_AF_NETDES       -21
+
 #else
 #define PORT uint16_t
 #define Socket_d size_t

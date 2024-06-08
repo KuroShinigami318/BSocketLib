@@ -27,22 +27,22 @@ void SocketReactor::Update(float)
 {
 }
 
-ISocketReactor::Result SocketReactor::Run()
+ISocketReactor::ReactorResult SocketReactor::Run()
 {
 	return make_error<Error>(ErrorCode::UnsupportedPlatform);
 }
 
-ISocketReactor::Result SocketReactor::RegisterEventHandler(SocketEvent i_event, std::unique_ptr<IEventHandler> i_eventHandler)
+ISocketReactor::ReactorResult SocketReactor::RegisterEventHandler(SocketEvent i_event, std::unique_ptr<IEventHandler> i_eventHandler)
 {
 	return make_error<Error>(ErrorCode::UnsupportedPlatform);
 }
 
-ISocketReactor::Result SocketReactor::DeregisterEventHandler(SocketEvent i_event)
+ISocketReactor::ReactorResult SocketReactor::DeregisterEventHandler(SocketEvent i_event)
 {
 	return make_error<Error>(ErrorCode::UnsupportedPlatform);
 }
 
-ISocketReactor::Result SocketReactor::ProcessAsyncRawData(void* i_rawData, SocketEvent i_eventType, ISocket* i_socket)
+ISocketReactor::ReactorResult SocketReactor::ProcessAsyncRawData(void* i_rawData, SocketEvent i_eventType, ISocket* i_socket)
 {
 	return make_error<Error>(ErrorCode::UnsupportedPlatform);
 }

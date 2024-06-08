@@ -35,9 +35,9 @@ ISocket::ReadResult Socket::ReadBytes(size_t i_size)
 	return readResult.unwrap();
 }
 
-ISocket::Result Socket::ReadBytesAsync(size_t i_size)
+ISocket::SocketResult Socket::ReadBytesAsync(size_t i_size)
 {
-	Socket_internal::Result readResult = m_socketInternal.ReadBytesAsync(i_size);
+	Socket_internal::SocketResult readResult = m_socketInternal.ReadBytesAsync(i_size);
 	if (readResult.isErr())
 	{
 		return readResult.unwrapErr();
@@ -55,9 +55,9 @@ ISocket::WriteResult Socket::WriteBytes(BytesT& i_bytes)
 	return writeResult.unwrap();
 }
 
-ISocket::Result Socket::WriteBytesAsync(BytesT& i_bytes)
+ISocket::SocketResult Socket::WriteBytesAsync(BytesT& i_bytes)
 {
-	Socket_internal::Result writeResult = m_socketInternal.WriteBytesAsync(i_bytes);
+	Socket_internal::SocketResult writeResult = m_socketInternal.WriteBytesAsync(i_bytes);
 	if (writeResult.isErr())
 	{
 		return writeResult.unwrapErr();

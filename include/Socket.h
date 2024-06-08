@@ -14,9 +14,9 @@ public:
 	Socket_d Open(Socket_AF, Socket_Type, Socket_Protocol) override;
 	bool Close() override;
 	ReadResult ReadBytes(size_t i_size) override;
-	Result ReadBytesAsync(size_t i_size) override;
+	SocketResult ReadBytesAsync(size_t i_size) override;
 	WriteResult WriteBytes(BytesT& i_bytes) override;
-	Result WriteBytesAsync(BytesT& i_bytes) override;
+	SocketResult WriteBytesAsync(BytesT& i_bytes) override;
 
 private:
 	void SetBlockProcess(bool i_blocking) override;

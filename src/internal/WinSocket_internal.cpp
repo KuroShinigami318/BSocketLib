@@ -40,7 +40,7 @@ Socket_internal::SocketResult Socket_internal::Close()
 	}
 	m_socket_d = BS_INVALID_SOCKET;
 
-	return true;
+	return Ok();
 }
 
 Socket_internal::ReadResult Socket_internal::ReadBytes(size_t i_size)
@@ -84,14 +84,14 @@ Socket_internal::ReadResult Socket_internal::ReadBytes(size_t i_size)
 	return bytes;
 }
 
-Socket_internal::Result Socket_internal::ReadBytesAsync(size_t i_size)
+Socket_internal::SocketResult Socket_internal::ReadBytesAsync(size_t i_size)
 {
 	if (m_socketReactor == nullptr || m_isBlocking.load(std::memory_order_relaxed))
 	{
 		std::string error = m_socketReactor != nullptr ? "this function need socket reactor to process" : "currently blocking";
 		return make_error<SocketError>(SocketErrorCode::InternalSocketError, error.c_str());
 	}
-	ISocketReactor::Result result = m_socketReactor->ProcessAsyncRawData(reinterpret_cast<void*>(&i_size), SocketEvent::ReadStream, m_selfInterface);
+	ISocketReactor::ReactorResult result = m_socketReactor->ProcessAsyncRawData(reinterpret_cast<void*>(&i_size), SocketEvent::ReadStream, m_selfInterface);
 	if (result.isErr())
 	{
 		return make_inner_error<SocketError>(SocketErrorCode::InternalSocketError, result.unwrapErr());
@@ -138,14 +138,14 @@ Socket_internal::WriteResult Socket_internal::WriteBytes(BytesT& i_bytes)
 	return (size_t) SendBytes;
 }
 
-Socket_internal::Result Socket_internal::WriteBytesAsync(BytesT& i_bytes)
+Socket_internal::SocketResult Socket_internal::WriteBytesAsync(BytesT& i_bytes)
 {
 	if (m_socketReactor == nullptr || m_isBlocking.load(std::memory_order_relaxed))
 	{
 		std::string error = m_socketReactor != nullptr ? "this function need socket reactor to process" : "currently blocking";
 		return make_error<SocketError>(SocketErrorCode::InternalSocketError, error.c_str());
 	}
-	ISocketReactor::Result result = m_socketReactor->ProcessAsyncRawData(reinterpret_cast<void*>(&i_bytes), SocketEvent::WriteStream, m_selfInterface);
+	ISocketReactor::ReactorResult result = m_socketReactor->ProcessAsyncRawData(reinterpret_cast<void*>(&i_bytes), SocketEvent::WriteStream, m_selfInterface);
 	if (result.isErr())
 	{
 		return make_inner_error<SocketError>(SocketErrorCode::InternalSocketError, result.unwrapErr());
