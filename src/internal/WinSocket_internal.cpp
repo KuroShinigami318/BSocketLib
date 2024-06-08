@@ -18,7 +18,7 @@ Socket_d Socket_internal::GetNativeSocket() const
 
 Socket_d Socket_internal::Open(Socket_AF i_socketAF, Socket_Type i_socketType, Socket_Protocol i_socketProtocol)
 {
-	if (m_socket_d != INVALID_SOCKET && m_socket_d != 0)
+	if (m_socket_d != BS_INVALID_SOCKET)
 	{
 		return m_socket_d;
 	}
@@ -28,7 +28,7 @@ Socket_d Socket_internal::Open(Socket_AF i_socketAF, Socket_Type i_socketType, S
 
 Socket_internal::SocketResult Socket_internal::Close()
 {
-	if (m_socket_d == 0 || m_socket_d == INVALID_SOCKET)
+	if (m_socket_d == BS_INVALID_SOCKET)
 	{
 		return make_error<SocketError>(SocketErrorCode::InvalidSocket);
 	}
@@ -38,14 +38,14 @@ Socket_internal::SocketResult Socket_internal::Close()
 	{
 		return make_error<SocketError>(SocketErrorCode::InternalSocketError, "closesocket failed with error: {}", WSAGetLastError());
 	}
-	m_socket_d = 0;
+	m_socket_d = BS_INVALID_SOCKET;
 
 	return true;
 }
 
 Socket_internal::ReadResult Socket_internal::ReadBytes(size_t i_size)
 {
-	if (m_socket_d == 0 || m_socket_d == INVALID_SOCKET)
+	if (m_socket_d == BS_INVALID_SOCKET)
 	{
 		return make_error<SocketError>(SocketErrorCode::InvalidSocket);
 	}
@@ -101,7 +101,7 @@ Socket_internal::Result Socket_internal::ReadBytesAsync(size_t i_size)
 
 Socket_internal::WriteResult Socket_internal::WriteBytes(BytesT& i_bytes)
 {
-	if (m_socket_d == 0 || m_socket_d == INVALID_SOCKET)
+	if (m_socket_d == INVALID_SOCKET)
 	{
 		return make_error<SocketError>(SocketErrorCode::InvalidSocket);
 	}

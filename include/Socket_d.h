@@ -8,6 +8,7 @@
 #define Socket_Type int
 #define Socket_Protocol int
 #define DATA_BUFSIZE 8192
+#define BS_INVALID_SOCKET -1
 
 // AF from winsock2
 #define BS_AF_UNSPEC       0               // unspecified
@@ -46,12 +47,14 @@
 #define Socket_AF int
 #define Socket_Type int
 #define Socket_Protocol int
+#define BS_INVALID_SOCKET -1
 #else
 #define PORT uint16_t
 #define Socket_d size_t
 #define Socket_AF int
 #define Socket_Type int
 #define Socket_Protocol int
+#define BS_INVALID_SOCKET -1
 
 #define BS_AF_UNSPEC       0
 #define BS_AF_UNIX         0

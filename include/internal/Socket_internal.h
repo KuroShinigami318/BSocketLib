@@ -16,7 +16,7 @@ public:
 	using WriteResult = Result<size_t, SocketError>;
 	using Result = Result<void, SocketError>;
 public:
-	Socket_internal(ISocket* i_selfInterface, ISocketReactor* i_socketReactor = nullptr, Socket_d i_socket_d = 0);
+	Socket_internal(ISocket* i_selfInterface, ISocketReactor* i_socketReactor = nullptr, Socket_d i_socket_d = BS_INVALID_SOCKET);
 	Socket_d GetNativeSocket() const;
 	Socket_d Open(Socket_AF, Socket_Type, Socket_Protocol);
 	SocketResult Close();
