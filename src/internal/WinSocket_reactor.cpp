@@ -230,6 +230,10 @@ void SocketReactor::Update(float)
 		auto eventIt = m_eventsMap.find(ioOperation->eventType);
 		if (eventIt == m_eventsMap.end())
 		{
+			ioContext->ioOperations.erase_if([ioOperation](internal::WinIOOperation& i_ioOperation)
+			{
+				return &i_ioOperation == ioOperation;
+			});
 			return;
 		}
 		switch (ioOperation->eventType)
