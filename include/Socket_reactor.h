@@ -14,6 +14,7 @@ public:
 	~SocketReactor();
 	void Update(float);
 	ISocketReactor::ReactorResult Run();
+	void Shutdown();
 	ISocketReactor::ReactorResult RegisterEventHandler(SocketEvent i_event, std::unique_ptr<IEventHandler> i_eventHandler) override;
 	ISocketReactor::ReactorResult DeregisterEventHandler(SocketEvent i_event) override;
 
@@ -41,7 +42,6 @@ private:
 
 private:
 	ISocketReactor::ReactorResult ProcessAsyncRawData(void* i_rawData, SocketEvent i_eventType, ISocket* i_socket) override;
-	void Shutdown();
 	void CloseClient(ISocket* i_socket);
 	void HandleError(Status i_status, std::string i_locationFailed);
 
