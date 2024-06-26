@@ -2,6 +2,7 @@
 #include "Socket_reactor.h"
 #include "IEventHandler.h"
 #include "internal/data/ReadData.h"
+#include "internal/data/WriteData.h"
 #include "Socket.h"
 
 #if defined(USE_WIN32_API)
@@ -489,19 +490,19 @@ ISocketReactor::ReactorResult SocketReactor::ProcessAsyncRawData(void* i_rawData
 	case SocketEvent::WriteStream:
 	{
 		sharedLock.unlock();
-		std::vector<char>& bytes = *reinterpret_cast<std::vector<char>*>(i_rawData);
-		if (bytes.size() > DATA_BUFSIZE)
+		internal::data::WriteData& writeData = *reinterpret_cast<internal::data::WriteData*>(i_rawData);
+		if (writeData.size > DATA_BUFSIZE)
 		{
-			const size_t totalSize = bytes.size();
-			size_t splitIndex = totalSize - DATA_BUFSIZE;
-			auto splitIt = bytes.begin() + splitIndex;
-			std::vector<char> splitedBytes(bytes.begin(), splitIt);
-			auto splitWriteResult = ProcessAsyncRawData(reinterpret_cast<void*>(&splitedBytes), SocketEvent::WriteStream, i_socket);
+			const size_t totalSize = writeData.size - DATA_BUFSIZE;
+			auto splitIt = writeData.end - DATA_BUFSIZE;
+			internal::data::WriteData splitWriteData{writeData.bytes, writeData.begin, splitIt, totalSize};
+			auto splitWriteResult = ProcessAsyncRawData(reinterpret_cast<void*>(&splitWriteData), SocketEvent::WriteStream, i_socket);
 			if (splitWriteResult.isErr())
 			{
 				return splitWriteResult.unwrapErr();
 			}
-			bytes.erase(bytes.begin(), splitIt);
+			writeData.begin = splitIt;
+			writeData.size -= totalSize;
 		}
 		internal::WinIOContext* ioContext = BindCompletionPort(m_nativeBuffer, m_mutex, m_nativeHandle, i_socket, i_eventType, m_workersConfig.num_threads);
 		if (ioContext == nullptr)
@@ -515,10 +516,10 @@ ISocketReactor::ReactorResult SocketReactor::ProcessAsyncRawData(void* i_rawData
 		DWORD byteSent = 0;
 		sharedLock.lock();
 		internal::WinIOOperation& ioOperation = *ioContext->ioOperations.back();
-		memcpy(ioOperation.buffers, bytes.data(), bytes.size());
+		memcpy(ioOperation.buffers, &*writeData.begin, writeData.size);
 		ioOperation.wsaBuffers.buf = ioOperation.buffers;
-		ioOperation.wsaBuffers.len = sizeof(ioOperation.buffers);
-		ioOperation.totalBytes = bytes.size();
+		ioOperation.wsaBuffers.len = writeData.size;
+		ioOperation.totalBytes = writeData.size;
 		int result = WSASend(ioContext->socket->GetNativeSocket(), &ioContext->ioOperations.back()->wsaBuffers, 1, &byteSent, dwFlags, (LPWSAOVERLAPPED)ioContext->ioOperations.back(), nullptr);
 		if (result == SOCKET_ERROR && (ERROR_IO_PENDING != WSAGetLastError()))
 		{
