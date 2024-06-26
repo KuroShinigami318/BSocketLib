@@ -488,12 +488,21 @@ ISocketReactor::ReactorResult SocketReactor::ProcessAsyncRawData(void* i_rawData
 	break;
 	case SocketEvent::WriteStream:
 	{
+		sharedLock.unlock();
 		std::vector<char>& bytes = *reinterpret_cast<std::vector<char>*>(i_rawData);
 		if (bytes.size() > DATA_BUFSIZE)
 		{
-			return make_error<ISocketReactor::Error>(ISocketReactor::ErrorCode::InternalError, "maximum buffer size has reached!");
+			const size_t totalSize = bytes.size();
+			size_t splitIndex = totalSize - DATA_BUFSIZE;
+			auto splitIt = bytes.begin() + splitIndex;
+			std::vector<char> splitedBytes(bytes.begin(), splitIt);
+			auto splitWriteResult = ProcessAsyncRawData(reinterpret_cast<void*>(&splitedBytes), SocketEvent::WriteStream, i_socket);
+			if (splitWriteResult.isErr())
+			{
+				return splitWriteResult.unwrapErr();
+			}
+			bytes.erase(bytes.begin(), splitIt);
 		}
-		sharedLock.unlock();
 		internal::WinIOContext* ioContext = BindCompletionPort(m_nativeBuffer, m_mutex, m_nativeHandle, i_socket, i_eventType, m_workersConfig.num_threads);
 		if (ioContext == nullptr)
 		{
