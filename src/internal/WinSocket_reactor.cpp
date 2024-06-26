@@ -493,16 +493,15 @@ ISocketReactor::ReactorResult SocketReactor::ProcessAsyncRawData(void* i_rawData
 		internal::data::WriteData& writeData = *reinterpret_cast<internal::data::WriteData*>(i_rawData);
 		if (writeData.size > DATA_BUFSIZE)
 		{
-			const size_t totalSize = writeData.size - DATA_BUFSIZE;
 			auto splitIt = writeData.end - DATA_BUFSIZE;
-			internal::data::WriteData splitWriteData{writeData.bytes, writeData.begin, splitIt, totalSize};
+			internal::data::WriteData splitWriteData{writeData.bytes, writeData.begin, splitIt, writeData.size - DATA_BUFSIZE };
 			auto splitWriteResult = ProcessAsyncRawData(reinterpret_cast<void*>(&splitWriteData), SocketEvent::WriteStream, i_socket);
 			if (splitWriteResult.isErr())
 			{
 				return splitWriteResult.unwrapErr();
 			}
 			writeData.begin = splitIt;
-			writeData.size -= totalSize;
+			writeData.size = DATA_BUFSIZE;
 		}
 		internal::WinIOContext* ioContext = BindCompletionPort(m_nativeBuffer, m_mutex, m_nativeHandle, i_socket, i_eventType, m_workersConfig.num_threads);
 		if (ioContext == nullptr)
