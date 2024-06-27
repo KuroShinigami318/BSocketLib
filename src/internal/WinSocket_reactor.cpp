@@ -220,10 +220,15 @@ void SocketReactor::Update(float)
 		ioOperation = reinterpret_cast<internal::WinIOOperation*>(overlapped);
 		if (!isSuccess || (isSuccess && bytesTransferred == 0))
 		{
-			ioContext->ioOperations.erase_if([ioOperation](internal::WinIOOperation& i_ioOperation)
+			sharedLock.unlock();
 			{
-				return &i_ioOperation == ioOperation;
-			});
+				std::unique_lock lock(m_mutex);
+				ioContext->ioOperations.erase_if([ioOperation](internal::WinIOOperation& i_ioOperation)
+				{
+					return &i_ioOperation == ioOperation;
+				});
+			}
+			sharedLock.lock();
 			HandleCloseSocket(m_mutex, ioContext, m_socketsToBeClosed, CloseSocketFunc(&SocketReactor::CloseClient, this));
 			return;
 		}
@@ -231,10 +236,15 @@ void SocketReactor::Update(float)
 		auto eventIt = m_eventsMap.find(ioOperation->eventType);
 		if (eventIt == m_eventsMap.end())
 		{
-			ioContext->ioOperations.erase_if([ioOperation](internal::WinIOOperation& i_ioOperation)
+			sharedLock.unlock();
 			{
-				return &i_ioOperation == ioOperation;
-			});
+				std::unique_lock lock(m_mutex);
+				ioContext->ioOperations.erase_if([ioOperation](internal::WinIOOperation& i_ioOperation)
+				{
+					return &i_ioOperation == ioOperation;
+				});
+			}
+			sharedLock.lock();
 			return;
 		}
 		switch (ioOperation->eventType)
@@ -462,12 +472,18 @@ ISocketReactor::ReactorResult SocketReactor::ProcessAsyncRawData(void* i_rawData
 	{
 	case SocketEvent::ReadStream:
 	{
+		sharedLock.unlock();
 		size_t& sizeToRead = *reinterpret_cast<size_t*>(i_rawData);
 		if (sizeToRead > DATA_BUFSIZE)
 		{
-			return make_error<ISocketReactor::Error>(ISocketReactor::ErrorCode::InternalError, "maximum buffer size has reached!");
+			size_t splitedSize = sizeToRead - DATA_BUFSIZE;
+			auto splitReadResult = ProcessAsyncRawData(reinterpret_cast<void*>(&splitedSize), SocketEvent::ReadStream, i_socket);
+			if (splitReadResult.isErr())
+			{
+				return splitReadResult;
+			}
+			sizeToRead = DATA_BUFSIZE;
 		}
-		sharedLock.unlock();
 		internal::WinIOContext* ioContext = BindCompletionPort(m_nativeBuffer, m_mutex, m_nativeHandle, i_socket, i_eventType, m_workersConfig.num_threads);
 		if (ioContext == nullptr)
 		{
@@ -498,7 +514,7 @@ ISocketReactor::ReactorResult SocketReactor::ProcessAsyncRawData(void* i_rawData
 			auto splitWriteResult = ProcessAsyncRawData(reinterpret_cast<void*>(&splitWriteData), SocketEvent::WriteStream, i_socket);
 			if (splitWriteResult.isErr())
 			{
-				return splitWriteResult.unwrapErr();
+				return splitWriteResult;
 			}
 			writeData.begin = splitIt;
 			writeData.size = DATA_BUFSIZE;
