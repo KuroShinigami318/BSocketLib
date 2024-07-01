@@ -105,7 +105,10 @@ SocketReactor::SocketReactor(InitType i_initType, Socket_AF i_socketAF, std::str
 
 SocketReactor::~SocketReactor()
 {
-	Shutdown();
+	if (m_status != Status::Shuttingdown)
+	{
+		Shutdown();
+	}
 }
 
 void SocketReactor::Shutdown()
@@ -333,7 +336,7 @@ ISocketReactor::ReactorResult SocketReactor::Run()
 	}
 
 	struct addrinfo hints = { 0 };
-	struct addrinfo* addrlocal = NULL;
+	struct addrinfo *addrlocal = NULL, *rp = NULL;
 	hints.ai_family = m_socketData.socketAF;
 	hints.ai_socktype = m_socketData.socketType;
 	hints.ai_protocol = m_socketData.socketProtocol;
@@ -352,12 +355,27 @@ ISocketReactor::ReactorResult SocketReactor::Run()
 		{
 			return make_error<Error>(ErrorCode::InternalError, "getaddrinfo failed {}", WSAGetLastError());
 		}
-		int result = bind(m_sockets.front()->GetNativeSocket(), addrlocal->ai_addr, (int)addrlocal->ai_addrlen);
-		if (result == SOCKET_ERROR)
+		for (rp = addrlocal; rp != NULL; rp = rp->ai_next)
+		{
+			int result = bind(m_sockets.front()->GetNativeSocket(), addrlocal->ai_addr, (int)addrlocal->ai_addrlen);
+			if (result != SOCKET_ERROR)
+			{
+				break;
+			}
+			m_sockets.pop_back();
+			std::unique_ptr<ISocket> socket = std::make_unique<Socket>(this);
+			Socket_d nativeSocket = socket->Open(m_socketData.socketAF, m_socketData.socketType, m_socketData.socketProtocol);
+			if (nativeSocket == INVALID_SOCKET)
+			{
+				continue;
+			}
+			m_sockets.emplace_back(std::move(socket));
+		}
+		if (rp == NULL)
 		{
 			return make_error<Error>(ErrorCode::InternalError, "bind failed {}", WSAGetLastError());
 		}
-		result = listen(m_sockets.front()->GetNativeSocket(), SOMAXCONN);
+		int result = listen(m_sockets.front()->GetNativeSocket(), SOMAXCONN);
 		if (result == SOCKET_ERROR)
 		{
 			return make_error<Error>(ErrorCode::InternalError, "listen failed {}", WSAGetLastError());
@@ -409,8 +427,23 @@ ISocketReactor::ReactorResult SocketReactor::Run()
 		{
 			return make_error<Error>(ErrorCode::InternalError, "getaddrinfo failed {}", WSAGetLastError());
 		}
-		int result = connect(m_sockets.front()->GetNativeSocket(), addrlocal->ai_addr, (int)addrlocal->ai_addrlen);
-		if (result == SOCKET_ERROR)
+		for (rp = addrlocal; rp != NULL; rp = rp->ai_next)
+		{
+			int result = connect(m_sockets.front()->GetNativeSocket(), addrlocal->ai_addr, (int)addrlocal->ai_addrlen);
+			if (result != SOCKET_ERROR)
+			{
+				break;
+			}
+			m_sockets.pop_back();
+			std::unique_ptr<ISocket> socket = std::make_unique<Socket>(this);
+			Socket_d nativeSocket = socket->Open(m_socketData.socketAF, m_socketData.socketType, m_socketData.socketProtocol);
+			if (nativeSocket == INVALID_SOCKET)
+			{
+				continue;
+			}
+			m_sockets.emplace_back(std::move(socket));
+		}
+		if (rp == NULL)
 		{
 			return make_error<Error>(ErrorCode::InternalError, "connect failed {}", WSAGetLastError());
 		}
@@ -438,7 +471,7 @@ ISocketReactor::ReactorResult SocketReactor::Run()
 		}
 		DWORD dwFlags = 0;
 		DWORD dwRecvNumBytes = 0;
-		result = WSARecv(m_sockets.front()->GetNativeSocket(), &ioContext->ioOperations.back()->wsaBuffers, 1, &dwRecvNumBytes, &dwFlags, (LPWSAOVERLAPPED)ioContext->ioOperations.back(), nullptr);
+		int result = WSARecv(m_sockets.front()->GetNativeSocket(), &ioContext->ioOperations.back()->wsaBuffers, 1, &dwRecvNumBytes, &dwFlags, (LPWSAOVERLAPPED)ioContext->ioOperations.back(), nullptr);
 		if (result == SOCKET_ERROR && (ERROR_IO_PENDING != WSAGetLastError()))
 		{
 			HandleError(Status::Shuttingdown, utils::Format("WSARecv with error: {}", WSAGetLastError()));
