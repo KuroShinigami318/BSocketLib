@@ -11,6 +11,8 @@
 #include "internal/WinIOContext.h"
 #pragma comment(lib, "ws2_32.lib")
 
+static const uint8_t k_clientWorkers = 1;
+
 static internal::WinIOContext* BindCompletionPort(utils::dynamic_buffers<uint8_t>& o_dynamicArray, std::shared_mutex& o_mutex, void* i_completionPort, ISocket* i_socket, SocketEvent i_eventType, unsigned int i_numThreads)
 {
 	std::unique_lock lock(o_mutex);
@@ -71,7 +73,7 @@ SocketReactor::EventData::EventData(std::unique_ptr<IEventHandler> i_eventHandle
 
 SocketReactor::SocketReactor(InitType i_initType, Socket_AF i_socketAF, std::string i_address, PORT i_port)
 	: m_initType(i_initType), m_nativeHandle(nullptr)
-	, m_workersConfig(utils::threadpool_config(i_initType == InitType::Connect ? 1 : std::thread::hardware_concurrency()))
+	, m_workersConfig(utils::threadpool_config(i_initType == InitType::Connect ? k_clientWorkers : std::thread::hardware_concurrency()))
 	, m_workerThreadpool(m_workersConfig)
 	, m_socketData(i_socketAF, SOCK_STREAM, IPPROTO_TCP, i_address, i_port)
 {

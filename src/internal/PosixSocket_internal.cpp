@@ -1,10 +1,12 @@
 #include "stdafx.h"
 #include "internal/Socket_internal.h"
+#include "internal/data/WriteData.h"
 #include "ISocket_reactor.h"
 
 #if defined(USE_POSIX_API)
-#include <sys/socket.h>
 #include <errno.h>
+#include <fcntl.h>
+#include <sys/socket.h>
 
 Socket_internal::Socket_internal(ISocket* i_selfInterface, ISocketReactor* i_socketReactor, Socket_d i_socket_d)
 	: m_selfInterface(i_selfInterface), m_socketReactor(i_socketReactor), m_socket_d(i_socket_d)
@@ -99,7 +101,8 @@ Socket_internal::SocketResult Socket_internal::WriteBytesAsync(BytesT& i_bytes)
 		std::string error = m_socketReactor != nullptr ? "this function need socket reactor to process" : "currently blocking";
 		return make_error<SocketError>(SocketErrorCode::InternalSocketError, error.c_str());
 	}
-	ISocketReactor::ReactorResult result = m_socketReactor->ProcessAsyncRawData(reinterpret_cast<void*>(&i_bytes), SocketEvent::WriteStream, m_selfInterface);
+	internal::data::WriteData writeData{i_bytes, i_bytes.begin(), i_bytes.end(), i_bytes.size()};
+	ISocketReactor::ReactorResult result = m_socketReactor->ProcessAsyncRawData(reinterpret_cast<void*>(&writeData), SocketEvent::WriteStream, m_selfInterface);
 	if (result.isErr())
 	{
 		return make_inner_error<SocketError>(SocketErrorCode::InternalSocketError, result.unwrapErr());

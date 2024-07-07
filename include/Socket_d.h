@@ -48,6 +48,7 @@
 #define Socket_AF int
 #define Socket_Type int
 #define Socket_Protocol int
+#define DATA_BUFSIZE 8192
 #define BS_INVALID_SOCKET -1
 
 #define BS_AF_UNSPEC       0

@@ -39,10 +39,7 @@ struct WinIOContext
 		: socket(i_socket)
 		, key(i_key)
 	{
-		WinIOOperation* ioOperation = *ioOperations.append(1);
-		ioOperation->eventType = i_eventType;
-		ioOperation->sentBytes = i_sentBytes;
-		ioOperation->totalBytes = i_totalBytes;
+		ioOperations.push(WinIOOperation{ i_eventType, i_sentBytes, i_totalBytes });
 	}
 };
 }

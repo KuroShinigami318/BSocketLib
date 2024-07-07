@@ -23,7 +23,7 @@ public:
 	virtual SocketResult WriteBytesAsync(BytesT& i_bytes) = 0;
 	virtual ~ISocket() = default;
 
-private:
+protected:
 	friend class SocketReactor;
 	virtual void SetBlockProcess(bool i_blocking) = 0;
 };

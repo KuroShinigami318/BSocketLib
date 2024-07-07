@@ -18,7 +18,7 @@ public:
 	ISocketReactor::ReactorResult RegisterEventHandler(SocketEvent i_event, std::unique_ptr<IEventHandler> i_eventHandler) override;
 	ISocketReactor::ReactorResult DeregisterEventHandler(SocketEvent i_event) override;
 
-private:
+protected:
 	DeclareInnerScopedEnum(Status, uint8_t, InitFailed, InitSuccess, Running, Shuttingdown);
 	struct AccessKey;
 	struct EventData
@@ -40,7 +40,7 @@ private:
 		PORT port;
 	};
 
-private:
+protected:
 	ISocketReactor::ReactorResult ProcessAsyncRawData(void* i_rawData, SocketEvent i_eventType, ISocket* i_socket) override;
 	void CloseClient(ISocket* i_socket);
 	void HandleError(Status i_status, std::string i_locationFailed);
@@ -51,13 +51,13 @@ private:
 	InitType m_initType;
 	Status m_status;
 	std::optional<Error> m_optError;
-	utils::threadpool_config m_workersConfig;
-	utils::message_threadpool m_workerThreadpool;
 	std::vector<utils::async_waitable<void>> m_waitables;
 	std::vector<std::unique_ptr<ISocket>> m_sockets;
 	std::vector<ISocket*> m_socketsToBeClosed;
 	std::unordered_map<SocketEvent, EventData> m_eventsMap;
 	std::shared_mutex m_mutex;
+	utils::threadpool_config m_workersConfig;
+	utils::message_threadpool m_workerThreadpool;
 };
 
 DefineScopeEnumOperatorImpl(InitType, SocketReactor);
