@@ -465,10 +465,10 @@ ISocketReactor::ReactorResult SocketReactor::Run()
 	hints.ai_socktype = m_socketData.socketType;
 	hints.ai_protocol = 0;
 
-	utils::Epilogue clean([result]()
+	utils::Epilogue clean([&result]()
 	{
 		if (result)
-		freeaddrinfo(result);
+			freeaddrinfo(result);
 	});
 
 	switch (m_initType)

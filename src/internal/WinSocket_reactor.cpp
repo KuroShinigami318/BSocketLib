@@ -342,7 +342,7 @@ ISocketReactor::ReactorResult SocketReactor::Run()
 	hints.ai_socktype = m_socketData.socketType;
 	hints.ai_protocol = m_socketData.socketProtocol;
 
-	utils::Epilogue clean([addrlocal]()
+	utils::Epilogue clean([&addrlocal]()
 	{
 		if (addrlocal)
 			freeaddrinfo(addrlocal);
