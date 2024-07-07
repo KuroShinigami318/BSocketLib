@@ -26,8 +26,7 @@ static internal::WinIOContext* BindCompletionPort(utils::dynamic_buffers<uint8_t
 	});
 	if (ioContext != nullptr)
 	{
-		internal::WinIOOperation* ioOperation = *ioContext->ioOperations.append(1);
-		ioOperation->eventType = i_eventType;
+		ioContext->ioOperations.emplace(i_eventType);
 		return ioContext;
 	}
 	if (!utils::dynamic_array_buffer::push<internal::WinIOContext>(o_dynamicArray, HashObject(i_socket), i_socket, i_eventType, 0 , 0))
