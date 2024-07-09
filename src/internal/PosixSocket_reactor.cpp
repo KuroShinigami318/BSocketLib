@@ -533,7 +533,7 @@ ISocketReactor::ReactorResult SocketReactor::Run()
 		{
 			sharedLock.unlock();
 			int nfds = epoll_wait(*(Socket_d*)m_nativeHandle, events, k_MaxEvents, k_waitInMs);
-			if (nfds == -1)
+			if (nfds == -1 && errno != EINTR)
 			{
 				HandleError(Status::Shuttingdown, utils::Format("epoll_wait failed {}", errno));
 				goto EOL;
@@ -626,7 +626,7 @@ ISocketReactor::ReactorResult SocketReactor::Run()
 			{
 				sharedLock.unlock();
 				int nfds = epoll_wait(*(Socket_d*)m_nativeHandle, events, 1, k_waitInMs);
-				if (nfds == -1)
+				if (nfds == -1 && errno != EINTR)
 				{
 					sharedLock.lock();
 					HandleImplement::HandleCloseClient(this, m_sockets.front().get(), sharedLock);
