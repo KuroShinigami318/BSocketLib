@@ -146,7 +146,7 @@ Socket_internal::SocketResult Socket_internal::WriteBytesAsync(BytesT& i_bytes)
 		std::string error = m_socketReactor != nullptr ? "this function need socket reactor to process" : "currently blocking";
 		return make_error<SocketError>(SocketErrorCode::InternalSocketError, error.c_str());
 	}
-	internal::data::WriteData writeData{i_bytes, i_bytes.begin(), i_bytes.end(), i_bytes.size()};
+	internal::data::WriteData writeData{&i_bytes, i_bytes.begin(), i_bytes.end(), i_bytes.size()};
 	ISocketReactor::ReactorResult result = m_socketReactor->ProcessAsyncRawData(reinterpret_cast<void*>(&writeData), SocketEvent::WriteStream, m_selfInterface);
 	if (result.isErr())
 	{

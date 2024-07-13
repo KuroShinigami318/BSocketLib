@@ -412,14 +412,14 @@ ISocketReactor::ReactorResult SocketReactor::ProcessAsyncRawData(void* i_rawData
 			{
 				return make_error<ISocketReactor::Error>(ISocketReactor::ErrorCode::InternalError, "allocate RawDataCache failed: {}");
 			}
-			dataCache->writeData.bytes = dataCache->rawData;
+			dataCache->writeData.bytes = &dataCache->rawData;
 			dataCache->writeData.begin = dataCache->rawData.begin();
 			dataCache->writeData.end = dataCache->rawData.end();
 		}
 		else if (dataCache->writeData.size <= 0)
 		{
 			dataCache->rawData = bytes_t(writeData.begin, writeData.end);
-			dataCache->writeData.bytes = dataCache->rawData;
+			dataCache->writeData.bytes = &dataCache->rawData;
 			dataCache->writeData.begin = dataCache->rawData.begin();
 			dataCache->writeData.end = dataCache->rawData.end();
 			dataCache->writeData.size = writeData.size;
