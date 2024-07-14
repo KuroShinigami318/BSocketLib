@@ -16,7 +16,7 @@ foreach(IDX RANGE ${total_libs})
     if (NOT TARGET ${TARGET_LINK_PRJ})
        add_subdirectory(${LIBS_DIR}/${CUR_NAME} ${CMAKE_BINARY_DIR}/${CUR_NAME})
     endif()
-    list(APPEND TARGETS_LINK_PRJ ${TARGET_LINK_PRJ})
+    list(APPEND ${PROJECT_NAME}_TARGETS_LINK_PRJ ${TARGET_LINK_PRJ})
 endforeach()
 endif()
 
@@ -32,7 +32,7 @@ target_sources(${PROJECT_NAME} PUBLIC
     FILES ${HEADERS}
 )
 foreach(TARGET_LINK_LIB ${TARGETS_LINK_PRJ})
-target_link_libraries(${PROJECT_NAME} ${TARGET_LINK_LIB})
+target_link_libraries(${PROJECT_NAME} ${${PROJECT_NAME}_TARGETS_LINK_PRJ})
 endforeach()
 if (TARGET CommonLib)
 target_precompile_headers(${PROJECT_NAME} REUSE_FROM CommonLib)
