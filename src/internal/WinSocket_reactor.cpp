@@ -177,25 +177,22 @@ void SocketReactor::Update(float)
 		{
 			CRASH_PLAIN_MSG("{}", m_optError.value());
 		}
-		for (auto socketIt = m_socketsToBeClosed.cbegin(); socketIt != m_socketsToBeClosed.cend();)
+		if (!m_socketsToBeClosed.empty())
 		{
-			internal::WinIOContext* ioContext = utils::dynamic_array_buffer::find_if<internal::WinIOContext>(m_nativeBuffer, [socketIt](const internal::WinIOContext& i_ioContext)
+			ISocket* socket = m_socketsToBeClosed.back();
+			internal::WinIOContext* ioContext = utils::dynamic_array_buffer::find_if<internal::WinIOContext>(m_nativeBuffer, [socket](const internal::WinIOContext& i_ioContext)
 			{
-				return *socketIt == i_ioContext.socket && i_ioContext.ioOperations.empty();
+				return socket == i_ioContext.socket && i_ioContext.ioOperations.empty();
 			});
 			if (ioContext != nullptr)
 			{
 				sharedLock.unlock();
-				CloseClient(*socketIt);
+				CloseClient(socket);
 				{
 					std::unique_lock lock(m_mutex);
-					socketIt = m_socketsToBeClosed.erase(socketIt);
+					m_socketsToBeClosed.pop_back();
 				}
 				sharedLock.lock();
-			}
-			else
-			{
-				++socketIt;
 			}
 		}
 	}
@@ -303,7 +300,7 @@ void SocketReactor::Update(float)
 					HandleCloseSocket(m_mutex, ioContext, m_socketsToBeClosed, CloseSocketFunc(&SocketReactor::CloseClient, this));
 				}
 			}
-			else
+			else if (ioOperation->totalBytes > 0)
 			{
 				size_t sentBytes = (size_t) ioOperation->sentBytes;
 				sharedLock.unlock();
@@ -530,10 +527,19 @@ ISocketReactor::ReactorResult SocketReactor::ProcessAsyncRawData(void* i_rawData
 		DWORD dwFlags = 0;
 		DWORD dwRecvNumBytes = 0;
 		sharedLock.lock();
-		int result = WSARecv(i_socket->GetNativeSocket(), &ioContext->ioOperations.back()->wsaBuffers, 1, &dwRecvNumBytes, &dwFlags, (LPWSAOVERLAPPED)ioContext->ioOperations.back(), nullptr);
+		internal::WinIOOperation* ioOperation = ioContext->ioOperations.back();
+		int result = WSARecv(i_socket->GetNativeSocket(), &ioOperation->wsaBuffers, 1, &dwRecvNumBytes, &dwFlags, (LPWSAOVERLAPPED)ioOperation, nullptr);
 		if (result == SOCKET_ERROR && (ERROR_IO_PENDING != WSAGetLastError()))
 		{
 			HandleCloseSocket(m_mutex, ioContext, m_socketsToBeClosed, CloseSocketFunc(&SocketReactor::CloseClient, this));
+			utils::async(m_workerThreadpool, [this, ioContext, ioOperation]()
+			{
+				std::unique_lock lock(m_mutex);
+				ioContext->ioOperations.erase_if([ioOperation](internal::WinIOOperation& i_ioOperation)
+				{
+					return &i_ioOperation == ioOperation;
+				});
+			});
 			return make_error<ISocketReactor::Error>(ISocketReactor::ErrorCode::InternalError, "failed in WSARecv with error: {}", WSAGetLastError());
 		}
 	}
@@ -565,15 +571,23 @@ ISocketReactor::ReactorResult SocketReactor::ProcessAsyncRawData(void* i_rawData
 		DWORD dwFlags = 0;
 		DWORD byteSent = 0;
 		sharedLock.lock();
-		internal::WinIOOperation& ioOperation = *ioContext->ioOperations.back();
-		memcpy(ioOperation.buffers, &*writeData.begin, writeData.size);
-		ioOperation.wsaBuffers.buf = ioOperation.buffers;
-		ioOperation.wsaBuffers.len = writeData.size;
-		ioOperation.totalBytes = writeData.size;
-		int result = WSASend(ioContext->socket->GetNativeSocket(), &ioContext->ioOperations.back()->wsaBuffers, 1, &byteSent, dwFlags, (LPWSAOVERLAPPED)ioContext->ioOperations.back(), nullptr);
+		internal::WinIOOperation* ioOperation = ioContext->ioOperations.back();
+		memcpy(ioOperation->buffers, &*writeData.begin, writeData.size);
+		ioOperation->wsaBuffers.buf = ioOperation->buffers;
+		ioOperation->wsaBuffers.len = writeData.size;
+		ioOperation->totalBytes = writeData.size;
+		int result = WSASend(ioContext->socket->GetNativeSocket(), &ioOperation->wsaBuffers, 1, &byteSent, dwFlags, (LPWSAOVERLAPPED)ioOperation, nullptr);
 		if (result == SOCKET_ERROR && (ERROR_IO_PENDING != WSAGetLastError()))
 		{
 			HandleCloseSocket(m_mutex, ioContext, m_socketsToBeClosed, CloseSocketFunc(&SocketReactor::CloseClient, this));
+			utils::async(m_workerThreadpool, [this, ioContext, ioOperation]()
+			{
+				std::unique_lock lock(m_mutex);
+				ioContext->ioOperations.erase_if([ioOperation](internal::WinIOOperation& i_ioOperation)
+				{
+					return &i_ioOperation == ioOperation;
+				});
+			});
 			return make_error<ISocketReactor::Error>(ISocketReactor::ErrorCode::InternalError, "failed in WSASend with error: {}", WSAGetLastError());
 		}
 	}
