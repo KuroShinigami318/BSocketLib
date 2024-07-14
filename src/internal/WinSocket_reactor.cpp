@@ -12,6 +12,7 @@
 #pragma comment(lib, "ws2_32.lib")
 
 static const uint8_t k_clientWorkers = 1;
+static const uint16_t k_serverWorkers = 1024;
 
 static internal::WinIOContext* BindCompletionPort(utils::dynamic_buffers<uint8_t>& o_dynamicArray, std::shared_mutex& o_mutex, void* i_completionPort, ISocket* i_socket, SocketEvent i_eventType, unsigned int i_numThreads)
 {
@@ -72,7 +73,7 @@ SocketReactor::EventData::EventData(std::unique_ptr<IEventHandler> i_eventHandle
 
 SocketReactor::SocketReactor(InitType i_initType, Socket_AF i_socketAF, std::string i_address, PORT i_port)
 	: m_initType(i_initType), m_nativeHandle(nullptr)
-	, m_workersConfig(utils::threadpool_config(i_initType == InitType::Connect ? k_clientWorkers : std::thread::hardware_concurrency()))
+	, m_workersConfig(utils::threadpool_config(i_initType == InitType::Connect ? k_clientWorkers : k_serverWorkers))
 	, m_workerThreadpool(m_workersConfig)
 	, m_socketData(i_socketAF, SOCK_STREAM, IPPROTO_TCP, i_address, i_port)
 {
@@ -106,23 +107,42 @@ SocketReactor::SocketReactor(InitType i_initType, Socket_AF i_socketAF, std::str
 
 SocketReactor::~SocketReactor()
 {
-	if (m_status != Status::Shuttingdown)
+	std::shared_lock lock(m_mutex);
+	while (m_status == Status::Shuttingdown)
 	{
+		lock.unlock();
+		utils::this_thread::yield();
+		utils::this_thread::sleep_for(utils::milisecs(1));
+		lock.lock();
+	}
+	if (m_status != Status::Shutdowned)
+	{
+		lock.unlock();
 		Shutdown();
+		lock.lock();
 	}
 }
 
 void SocketReactor::Shutdown()
 {
 	std::unique_lock lock(m_mutex);
+	if (m_status == Status::Shuttingdown)
+	{
+		CRASH("Trying to call shutdown again!!!");
+	}
 	m_status = Status::Shuttingdown;
-	for (size_t i = 0; i < m_waitables.size(); ++i)
+	utils::Epilogue cleanup([this]() { m_status = Status::Shutdowned; });
+	for (utils::async_waitable<void>& waitable : m_waitables)
 	{
 		PostQueuedCompletionStatus(m_nativeHandle, 0, 0, NULL);
 	}
 	utils::dynamic_array_buffer::deallocate<internal::WinIOContext>(m_nativeBuffer);
 	m_sockets.clear();
 	WSACleanup();
+	CloseHandle(m_nativeHandle);
+	lock.unlock();
+	m_workerThreadpool.shutdown();
+	lock.lock();
 	auto eventIt = m_eventsMap.find(SocketEvent::ShuttingDown);
 	if (eventIt == m_eventsMap.end())
 	{
@@ -131,7 +151,6 @@ void SocketReactor::Shutdown()
 	lock.unlock();
 	utils::Access<AccessKey>(eventIt->second.cb_handleAction).Emit(&IEventHandler::HandleEvent, nullptr);
 	lock.lock();
-	CloseHandle(m_nativeHandle);
 }
 
 void SocketReactor::CloseClient(ISocket* i_socket)
@@ -167,163 +186,160 @@ void SocketReactor::HandleError(Status i_status, std::string i_locationFailed)
 
 void SocketReactor::Update(float)
 {
+	std::shared_lock sharedLock(m_mutex);
+	if (m_status == Status::Shuttingdown)
 	{
-		std::shared_lock sharedLock(m_mutex);
-		if (m_status == Status::Shuttingdown)
+		return;
+	}
+	if (m_status == Status::InitFailed)
+	{
+		CRASH_PLAIN_MSG("{}", m_optError.value());
+	}
+	while (m_waitables.size() < m_workersConfig.num_threads)
+	{
+		m_waitables.push_back(utils::async(m_workerThreadpool, [this]()
 		{
-			return;
-		}
-		if (m_status == Status::InitFailed)
-		{
-			CRASH_PLAIN_MSG("{}", m_optError.value());
-		}
-		if (!m_socketsToBeClosed.empty())
-		{
-			ISocket* socket = m_socketsToBeClosed.back();
-			internal::WinIOContext* ioContext = utils::dynamic_array_buffer::find_if<internal::WinIOContext>(m_nativeBuffer, [socket](const internal::WinIOContext& i_ioContext)
+			DWORD bytesTransferred = 0;
+			BOOL isSuccess = FALSE;
+			LPOVERLAPPED overlapped = nullptr;
+			internal::WinIOContext* ioContext = nullptr;
+			internal::WinIOOperation* ioOperation = nullptr;
+			isSuccess = GetQueuedCompletionStatus(m_nativeHandle, &bytesTransferred, (PULONG_PTR)&ioContext, &overlapped, INFINITE);
+
+			std::shared_lock sharedLock(m_mutex);
+			if (m_status == Status::Shuttingdown || ioContext == nullptr || overlapped == nullptr)
 			{
-				return socket == i_ioContext.socket && i_ioContext.ioOperations.empty();
-			});
-			if (ioContext != nullptr)
+				return;
+			}
+			ioOperation = reinterpret_cast<internal::WinIOOperation*>(overlapped);
+			if (!isSuccess || (isSuccess && bytesTransferred == 0))
 			{
 				sharedLock.unlock();
-				CloseClient(socket);
 				{
 					std::unique_lock lock(m_mutex);
-					m_socketsToBeClosed.pop_back();
+					ioContext->ioOperations.erase_if([ioOperation](internal::WinIOOperation& i_ioOperation)
+						{
+							return &i_ioOperation == ioOperation;
+						});
 				}
 				sharedLock.lock();
+				HandleCloseSocket(m_mutex, ioContext, m_socketsToBeClosed, CloseSocketFunc(&SocketReactor::CloseClient, this));
+				return;
 			}
+
+			auto eventIt = m_eventsMap.find(ioOperation->eventType);
+			if (eventIt == m_eventsMap.end())
+			{
+				sharedLock.unlock();
+				{
+					std::unique_lock lock(m_mutex);
+					ioContext->ioOperations.erase_if([ioOperation](internal::WinIOOperation& i_ioOperation)
+						{
+							return &i_ioOperation == ioOperation;
+						});
+				}
+				sharedLock.lock();
+				return;
+			}
+			switch (ioOperation->eventType)
+			{
+			case SocketEvent::ReadStream:
+			{
+				ioOperation->totalBytes = bytesTransferred;
+				std::string charBytes(ioOperation->wsaBuffers.buf, ioOperation->totalBytes);
+				std::vector<char> bytes(charBytes.begin(), charBytes.end());
+				internal::data::ReadData readData(bytes, *ioContext->socket);
+				sharedLock.unlock();
+				{
+					std::unique_lock lock(m_mutex);
+					ioContext->ioOperations.erase_if([ioOperation](internal::WinIOOperation& i_ioOperation)
+						{
+							return &i_ioOperation == ioOperation;
+						});
+				}
+				if (!utils::Access<AccessKey>(eventIt->second.cb_handleAction).Emit(&IEventHandler::HandleEvent, reinterpret_cast<void*>(&readData)).value())
+				{
+					sharedLock.lock();
+					HandleCloseSocket(m_mutex, ioContext, m_socketsToBeClosed, CloseSocketFunc(&SocketReactor::CloseClient, this));
+					return;
+				}
+				size_t byteToRead = 0;
+				ProcessAsyncRawData(reinterpret_cast<void*>(&byteToRead), SocketEvent::ReadStream, ioContext->socket).ignoreResult();
+				sharedLock.lock();
+			}
+			break;
+			case SocketEvent::WriteStream:
+			{
+				ioOperation->sentBytes += bytesTransferred;
+				if (ioOperation->sentBytes < ioOperation->totalBytes)
+				{
+					DWORD dwFlags = 0;
+					DWORD byteSent = 0;
+					WSABUF wsaBufSend{};
+					wsaBufSend.buf = ioOperation->buffers + ioOperation->sentBytes;
+					wsaBufSend.len = ioOperation->totalBytes - ioOperation->sentBytes;
+					int result = WSASend(ioContext->socket->GetNativeSocket(), &wsaBufSend, 1, &byteSent, dwFlags, &ioOperation->overlapped, NULL);
+					if (result == SOCKET_ERROR && (ERROR_IO_PENDING != WSAGetLastError()))
+					{
+						sharedLock.unlock();
+						{
+							std::unique_lock lock(m_mutex);
+							ioContext->ioOperations.erase_if([ioOperation](internal::WinIOOperation& i_ioOperation)
+								{
+									return &i_ioOperation == ioOperation;
+								});
+						}
+						sharedLock.lock();
+						HandleCloseSocket(m_mutex, ioContext, m_socketsToBeClosed, CloseSocketFunc(&SocketReactor::CloseClient, this));
+					}
+				}
+				else if (ioOperation->totalBytes > 0)
+				{
+					size_t sentBytes = (size_t)ioOperation->sentBytes;
+					sharedLock.unlock();
+					{
+						std::unique_lock lock(m_mutex);
+						ioContext->ioOperations.erase_if([ioOperation](internal::WinIOOperation& i_ioOperation)
+							{
+								return &i_ioOperation == ioOperation;
+							});
+					}
+					if (!utils::Access<AccessKey>(eventIt->second.cb_handleAction).Emit(&IEventHandler::HandleEvent, reinterpret_cast<void*>(&sentBytes)).value())
+					{
+						sharedLock.lock();
+						HandleCloseSocket(m_mutex, ioContext, m_socketsToBeClosed, CloseSocketFunc(&SocketReactor::CloseClient, this));
+						return;
+					}
+					sharedLock.lock();
+				}
+			}
+			break;
+			default: break;
+			}
+		}));
+	}
+	if (!m_socketsToBeClosed.empty())
+	{
+		ISocket* socket = m_socketsToBeClosed.back();
+		internal::WinIOContext* ioContext = utils::dynamic_array_buffer::find_if<internal::WinIOContext>(m_nativeBuffer, [socket](const internal::WinIOContext& i_ioContext)
+		{
+			return socket == i_ioContext.socket && i_ioContext.ioOperations.empty();
+		});
+		if (ioContext != nullptr)
+		{
+			sharedLock.unlock();
+			CloseClient(socket);
+			{
+				std::unique_lock lock(m_mutex);
+				m_socketsToBeClosed.pop_back();
+			}
+			sharedLock.lock();
 		}
 	}
 	std::erase_if(m_waitables, [](const utils::async_waitable<void>& i_waitable)
 	{
 		return i_waitable.HasFinished();
 	});
-	if (m_waitables.size() > m_workersConfig.num_threads)
-	{
-		return;
-	}
-	m_waitables.push_back(utils::async(m_workerThreadpool, [this]()
-	{
-		DWORD bytesTransferred = 0;
-		BOOL isSuccess = FALSE;
-		LPOVERLAPPED overlapped = nullptr;
-		internal::WinIOContext* ioContext = nullptr;
-		internal::WinIOOperation* ioOperation = nullptr;
-		isSuccess = GetQueuedCompletionStatus(m_nativeHandle, &bytesTransferred, (PULONG_PTR) &ioContext, &overlapped, INFINITE);
-
-		std::shared_lock sharedLock(m_mutex);
-		if (m_status == Status::Shuttingdown || ioContext == nullptr || overlapped == nullptr)
-		{
-			return;
-		}
-		ioOperation = reinterpret_cast<internal::WinIOOperation*>(overlapped);
-		if (!isSuccess || (isSuccess && bytesTransferred == 0))
-		{
-			sharedLock.unlock();
-			{
-				std::unique_lock lock(m_mutex);
-				ioContext->ioOperations.erase_if([ioOperation](internal::WinIOOperation& i_ioOperation)
-				{
-					return &i_ioOperation == ioOperation;
-				});
-			}
-			sharedLock.lock();
-			HandleCloseSocket(m_mutex, ioContext, m_socketsToBeClosed, CloseSocketFunc(&SocketReactor::CloseClient, this));
-			return;
-		}
-
-		auto eventIt = m_eventsMap.find(ioOperation->eventType);
-		if (eventIt == m_eventsMap.end())
-		{
-			sharedLock.unlock();
-			{
-				std::unique_lock lock(m_mutex);
-				ioContext->ioOperations.erase_if([ioOperation](internal::WinIOOperation& i_ioOperation)
-				{
-					return &i_ioOperation == ioOperation;
-				});
-			}
-			sharedLock.lock();
-			return;
-		}
-		switch (ioOperation->eventType)
-		{
-		case SocketEvent::ReadStream:
-		{
-			ioOperation->totalBytes = bytesTransferred;
-			std::string charBytes(ioOperation->wsaBuffers.buf, ioOperation->totalBytes);
-			std::vector<char> bytes(charBytes.begin(), charBytes.end());
-			internal::data::ReadData readData(bytes, *ioContext->socket);
-			sharedLock.unlock();
-			{
-				std::unique_lock lock(m_mutex);
-				ioContext->ioOperations.erase_if([ioOperation](internal::WinIOOperation& i_ioOperation)
-				{
-					return &i_ioOperation == ioOperation;
-				});
-			}
-			if (!utils::Access<AccessKey>(eventIt->second.cb_handleAction).Emit(&IEventHandler::HandleEvent, reinterpret_cast<void*>(&readData)).value())
-			{
-				sharedLock.lock();
-				HandleCloseSocket(m_mutex, ioContext, m_socketsToBeClosed, CloseSocketFunc(&SocketReactor::CloseClient, this));
-				return;
-			}
-			size_t byteToRead = 0;
-			ProcessAsyncRawData(reinterpret_cast<void*>(&byteToRead), SocketEvent::ReadStream, ioContext->socket).ignoreResult();
-			sharedLock.lock();
-		}
-		break;
-		case SocketEvent::WriteStream:
-		{
-			ioOperation->sentBytes += bytesTransferred;
-			if (ioOperation->sentBytes < ioOperation->totalBytes)
-			{
-				DWORD dwFlags = 0;
-				DWORD byteSent = 0;
-				WSABUF wsaBufSend{};
-				wsaBufSend.buf = ioOperation->buffers + ioOperation->sentBytes;
-				wsaBufSend.len = ioOperation->totalBytes - ioOperation->sentBytes;
-				int result = WSASend(ioContext->socket->GetNativeSocket(), &wsaBufSend, 1, &byteSent, dwFlags, &ioOperation->overlapped, NULL);
-				if (result == SOCKET_ERROR && (ERROR_IO_PENDING != WSAGetLastError()))
-				{
-					sharedLock.unlock();
-					{
-						std::unique_lock lock(m_mutex);
-						ioContext->ioOperations.erase_if([ioOperation](internal::WinIOOperation& i_ioOperation)
-						{
-							return &i_ioOperation == ioOperation;
-						});
-					}
-					sharedLock.lock();
-					HandleCloseSocket(m_mutex, ioContext, m_socketsToBeClosed, CloseSocketFunc(&SocketReactor::CloseClient, this));
-				}
-			}
-			else if (ioOperation->totalBytes > 0)
-			{
-				size_t sentBytes = (size_t) ioOperation->sentBytes;
-				sharedLock.unlock();
-				{
-					std::unique_lock lock(m_mutex);
-					ioContext->ioOperations.erase_if([ioOperation](internal::WinIOOperation& i_ioOperation)
-					{
-						return &i_ioOperation == ioOperation;
-					});
-				}
-				if (!utils::Access<AccessKey>(eventIt->second.cb_handleAction).Emit(&IEventHandler::HandleEvent, reinterpret_cast<void*>(&sentBytes)).value())
-				{
-					sharedLock.lock();
-					HandleCloseSocket(m_mutex, ioContext, m_socketsToBeClosed, CloseSocketFunc(&SocketReactor::CloseClient, this));
-					return;
-				}
-				sharedLock.lock();
-			}
-		}
-		break;
-		default: break;
-		}
-	}));
 }
 
 ISocketReactor::ReactorResult SocketReactor::Run()

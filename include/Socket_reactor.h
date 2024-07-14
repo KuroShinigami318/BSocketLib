@@ -19,7 +19,7 @@ public:
 	ISocketReactor::ReactorResult DeregisterEventHandler(SocketEvent i_event) override;
 
 protected:
-	DeclareInnerScopedEnum(Status, uint8_t, InitFailed, InitSuccess, Running, Shuttingdown);
+	DeclareInnerScopedEnum(Status, uint8_t, InitFailed, InitSuccess, Running, Shuttingdown, Shutdowned);
 	struct AccessKey;
 	struct EventData
 	{
