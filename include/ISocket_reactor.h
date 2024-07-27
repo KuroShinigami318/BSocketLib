@@ -9,7 +9,7 @@ class ISocket;
 class ISocketReactor
 {
 public:
-	DeclareScopedEnum(ErrorCode, uint32_t, InternalError, UnsupportedPlatform);
+	DeclareScopedEnum(ErrorCode, uint32_t, InternalError, UnsupportedPlatform, AlreadyInProgress);
 	using Error = utils::Error<ErrorCode>;
 	using ReactorResult = Result<void, Error>;
 public:
