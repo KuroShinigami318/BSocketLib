@@ -268,11 +268,10 @@ void SocketReactor::Update(float)
 				{
 					utils::async(m_messageQueue, [this, ioContext, ioOperation]()
 					{
-						DWORD dwFlags = 0;
 						DWORD byteSent = 0;
 						ioOperation->wsaBuffers.buf = ioOperation->buffers + ioOperation->sentBytes;
 						ioOperation->wsaBuffers.len = ioOperation->totalBytes - ioOperation->sentBytes;
-						int result = WSASend(ioContext->socket->GetNativeSocket(), &ioOperation->wsaBuffers, 1, &byteSent, dwFlags, &ioOperation->overlapped, NULL);
+						int result = WSASend(ioContext->socket->GetNativeSocket(), &ioOperation->wsaBuffers, 1, &byteSent, ioOperation->dwFlags, &ioOperation->overlapped, NULL);
 						if (result == SOCKET_ERROR && (ERROR_IO_PENDING != WSAGetLastError()))
 						{
 							{
@@ -527,9 +526,8 @@ ISocketReactor::ReactorResult SocketReactor::ProcessAsyncRawData(void* i_rawData
 		internal::WinIOOperation* ioOperation = ioContext->ioOperations.back();
 		utils::async(m_messageQueue, [this, ioContext, ioOperation]()
 		{
-			DWORD dwFlags = 0;
 			DWORD dwRecvNumBytes = 0;
-			int result = WSARecv(ioContext->socket->GetNativeSocket(), &ioOperation->wsaBuffers, 1, &dwRecvNumBytes, &dwFlags, (LPWSAOVERLAPPED)ioOperation, nullptr);
+			int result = WSARecv(ioContext->socket->GetNativeSocket(), &ioOperation->wsaBuffers, 1, &dwRecvNumBytes, &ioOperation->dwFlags, (LPWSAOVERLAPPED)ioOperation, nullptr);
 			if (result == SOCKET_ERROR && (ERROR_IO_PENDING != WSAGetLastError()))
 			{
 				PostQueuedCompletionStatus(m_nativeHandle, 0, (ULONG_PTR)ioContext, (LPWSAOVERLAPPED)ioOperation);
@@ -569,9 +567,8 @@ ISocketReactor::ReactorResult SocketReactor::ProcessAsyncRawData(void* i_rawData
 		ioOperation->totalBytes = writeData.size;
 		utils::async(m_messageQueue, [this, ioContext, ioOperation]()
 		{
-			DWORD dwFlags = 0;
 			DWORD byteSent = 0;
-			int result = WSASend(ioContext->socket->GetNativeSocket(), &ioOperation->wsaBuffers, 1, &byteSent, dwFlags, (LPWSAOVERLAPPED)ioOperation, nullptr);
+			int result = WSASend(ioContext->socket->GetNativeSocket(), &ioOperation->wsaBuffers, 1, &byteSent, ioOperation->dwFlags, (LPWSAOVERLAPPED)ioOperation, nullptr);
 			if (result == SOCKET_ERROR && (ERROR_IO_PENDING != WSAGetLastError()))
 			{
 				PostQueuedCompletionStatus(m_nativeHandle, 0, (ULONG_PTR)ioContext, (LPWSAOVERLAPPED)ioOperation);

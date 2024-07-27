@@ -12,6 +12,7 @@ struct WinIOOperation
 	SocketEvent eventType = SocketEvent::ReadStream;
 	DWORD sentBytes = 0;
 	DWORD totalBytes = 0;
+	DWORD dwFlags = 0;
 	WSABUF wsaBuffers;
 	char buffers[DATA_BUFSIZE];
 
@@ -26,6 +27,23 @@ struct WinIOOperation
 		overlapped.Offset = 0;
 		overlapped.OffsetHigh = 0;
 		overlapped.hEvent = NULL;
+	}
+
+	WinIOOperation(const WinIOOperation& other)
+	{
+		wsaBuffers.buf = buffers;
+		wsaBuffers.len = sizeof(buffers);
+		overlapped.Internal = 0;
+		overlapped.InternalHigh = 0;
+		overlapped.Offset = 0;
+		overlapped.OffsetHigh = 0;
+		overlapped.hEvent = NULL;
+		eventType = other.eventType;
+		sentBytes = other.sentBytes;
+		totalBytes = other.totalBytes;
+		dwFlags = other.dwFlags;
+
+		memcpy(buffers, other.buffers, other.wsaBuffers.len);
 	}
 };
 
