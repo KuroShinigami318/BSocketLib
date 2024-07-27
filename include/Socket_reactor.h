@@ -56,6 +56,7 @@ protected:
 	std::vector<ISocket*> m_socketsToBeClosed;
 	std::unordered_map<SocketEvent, EventData> m_eventsMap;
 	std::shared_mutex m_mutex;
+	utils::MessageSink_mt m_messageQueue;
 	utils::threadpool_config m_workersConfig;
 	utils::message_threadpool m_workerThreadpool;
 };
