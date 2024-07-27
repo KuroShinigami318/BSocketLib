@@ -248,7 +248,6 @@ void SocketReactor::Update(float)
 				sharedLock.unlock();
 				size_t byteToRead = 0;
 				const bool shouldCloseConnection = !utils::Access<AccessKey>(eventIt->second.cb_handleAction).Emit(&IEventHandler::HandleEvent, reinterpret_cast<void*>(&readData)).value();
-				ProcessAsyncRawData(reinterpret_cast<void*>(&byteToRead), SocketEvent::ReadStream, ioContext->socket).ignoreResult();
 				{
 					std::unique_lock lock(m_mutex);
 					ioContext->ioOperations.erase_if([ioOperation](const internal::WinIOOperation& i_ioOperation)
@@ -256,6 +255,7 @@ void SocketReactor::Update(float)
 						return &i_ioOperation == ioOperation;
 					});
 				}
+				ProcessAsyncRawData(reinterpret_cast<void*>(&byteToRead), SocketEvent::ReadStream, ioContext->socket).ignoreResult();
 				sharedLock.lock();
 				if (shouldCloseConnection)
 				{
