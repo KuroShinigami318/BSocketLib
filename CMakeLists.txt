@@ -25,17 +25,33 @@ set(SRC_DIR ${CMAKE_CURRENT_SOURCE_DIR}/src)
 file(GLOB_RECURSE SOURCES CONFIGURE_DEPENDS ${SRC_DIR}/*.cpp)
 set(INCLUDE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/include)
 file(GLOB_RECURSE HEADERS CONFIGURE_DEPENDS ${INCLUDE_DIR}/*.h)
+
+set(PREBUILT_PATH ${CMAKE_CURRENT_SOURCE_DIR}/lib)
+find_library(MYSELF_FIND NAMES ${PROJECT_NAME} PATHS ${PREBUILT_PATH})
+
+if (MYSELF_FIND)
+message("found prebuilt library ${MYSELF_FIND}")
+set(PREBUILT_${PROJECT_NAME} ${MYSELF_FIND} CACHE INTERNAL "lib path")
+set(${PROJECT_NAME}_INCLUDE ${INCLUDE_DIR} CACHE INTERNAL "lib include")
+else()
+message("building library ${PROJECT_NAME}")
+include_directories(${PROJECT_NAME} PUBLIC ${INCLUDE_DIR})
 add_library(${PROJECT_NAME} ${SOURCES})
 target_sources(${PROJECT_NAME} PUBLIC
     FILE_SET HEADERS
     BASE_DIRS ${INCLUDE_DIR}
     FILES ${HEADERS}
 )
-foreach(TARGET_LINK_LIB ${TARGETS_LINK_PRJ})
-target_link_libraries(${PROJECT_NAME} ${${PROJECT_NAME}_TARGETS_LINK_PRJ})
+set_target_properties(${PROJECT_NAME} PROPERTIES
+    LIBRARY_OUTPUT_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/lib
+    ARCHIVE_OUTPUT_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/lib
+)
+foreach(TARGET_LINK_LIB ${${PROJECT_NAME}_TARGETS_LINK_PRJ})
+target_link_libraries(${PROJECT_NAME} ${TARGET_LINK_LIB})
 endforeach()
 if (TARGET CommonLib)
 target_precompile_headers(${PROJECT_NAME} REUSE_FROM CommonLib)
 else()
 message(FATAL_ERROR "This lib depends on CommonLib and must have dependant first!")
+endif()
 endif()
