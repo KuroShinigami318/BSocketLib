@@ -31,6 +31,8 @@ find_library(MYSELF_FIND NAMES ${PROJECT_NAME} PATHS ${PREBUILT_PATH})
 
 if (MYSELF_FIND)
 message("found prebuilt library ${MYSELF_FIND}")
+message("use variable PREBUILT_${PROJECT_NAME} to obtain lib path")
+message("use variable ${PROJECT_NAME}_INCLUDE to obtain include dir")
 set(PREBUILT_${PROJECT_NAME} ${MYSELF_FIND} CACHE INTERNAL "lib path")
 set(${PROJECT_NAME}_INCLUDE ${INCLUDE_DIR} CACHE INTERNAL "lib include")
 else()
