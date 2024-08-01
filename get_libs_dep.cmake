@@ -1,0 +1,18 @@
+macro(get_libs_dep libs_dir config_path output_list)
+set(LIBS_DIR ${libs_dir})
+if (EXISTS ${config_path})
+file(READ ${config_path} LIBS_DEP_JSON)
+string(JSON total_libs LENGTH "${LIBS_DEP_JSON}" libs)
+MATH(EXPR total_libs "${total_libs}-1")
+foreach(IDX RANGE ${total_libs})
+    # Get the name from the current JSON element.
+    string(JSON CUR_NAME GET ${LIBS_DEP_JSON} libs ${IDX} name)
+    # Get the URL from the current JSON element.
+    string(JSON TARGET_LINK_PRJ GET ${LIBS_DEP_JSON} libs ${IDX} prj_name)
+    if (NOT TARGET ${TARGET_LINK_PRJ})
+       add_subdirectory(${LIBS_DIR}/${CUR_NAME} ${CMAKE_BINARY_DIR}/${CUR_NAME})
+    endif()
+    list(APPEND ${output_list} ${TARGET_LINK_PRJ})
+endforeach()
+endif()
+endmacro()

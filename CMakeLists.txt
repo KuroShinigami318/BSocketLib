@@ -2,62 +2,15 @@
 
 set(PARENT_PROJECT ${PROJECT_NAME})
 project ("BSocketLib")
-
 set(CMAKE_CXX_STANDARD 20)
-set(LIBS_DIR ${CMAKE_CURRENT_SOURCE_DIR}/libs)
-if (EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/libs_dep.json)
-file(READ ${CMAKE_CURRENT_SOURCE_DIR}/libs_dep.json LIBS_DEP_JSON)
-string(JSON total_libs LENGTH "${LIBS_DEP_JSON}" libs)
-MATH(EXPR total_libs "${total_libs}-1")
-foreach(IDX RANGE ${total_libs})
-    # Get the name from the current JSON element.
-    string(JSON CUR_NAME GET ${LIBS_DEP_JSON} libs ${IDX} name)
-    # Get the URL from the current JSON element.
-    string(JSON TARGET_LINK_PRJ GET ${LIBS_DEP_JSON} libs ${IDX} prj_name)
-    if (NOT TARGET ${TARGET_LINK_PRJ})
-       add_subdirectory(${LIBS_DIR}/${CUR_NAME} ${CMAKE_BINARY_DIR}/${CUR_NAME})
-    endif()
-    list(APPEND ${PROJECT_NAME}_TARGETS_LINK_PRJ ${TARGET_LINK_PRJ})
-endforeach()
-endif()
+include(get_libs_dep.cmake)
+include(make_library.cmake)
 
-# Add source to this project's executable.
-set(SRC_DIR ${CMAKE_CURRENT_SOURCE_DIR}/src)
-file(GLOB_RECURSE SOURCES CONFIGURE_DEPENDS ${SRC_DIR}/*.cpp)
-set(INCLUDE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/include)
-file(GLOB_RECURSE HEADERS CONFIGURE_DEPENDS ${INCLUDE_DIR}/*.h)
-
-set(PREBUILT_PATH ${CMAKE_CURRENT_SOURCE_DIR}/lib)
-find_library(MYSELF_FIND_d NAMES ${PROJECT_NAME}d PATHS ${PREBUILT_PATH} NO_CACHE)
-find_library(MYSELF_FIND_r NAMES ${PROJECT_NAME} PATHS ${PREBUILT_PATH} NO_CACHE)
-if (MYSELF_FIND_d AND MYSELF_FIND_r AND PARENT_PROJECT)
-message("found prebuilt library ${MYSELF_FIND_d} ${MYSELF_FIND_r}")
-message("use variable PREBUILT_${PROJECT_NAME} to obtain lib path")
-message("use variable ${PROJECT_NAME}_INCLUDE to obtain include dir")
-set(PREBUILT_${PROJECT_NAME} debug ${MYSELF_FIND_d} optimized ${MYSELF_FIND_r} PARENT_SCOPE)
-set(${PROJECT_NAME}_INCLUDE ${INCLUDE_DIR} PARENT_SCOPE)
-else()
-message("building library ${PROJECT_NAME}")
-add_library(${PROJECT_NAME} ${SOURCES})
-target_sources(${PROJECT_NAME} PUBLIC
-    FILE_SET HEADERS
-    BASE_DIRS ${INCLUDE_DIR}
-    FILES ${HEADERS}
-)
-foreach(BUILD_ENTRY IN LISTS CMAKE_CONFIGURATION_TYPES)
-string(TOUPPER ${BUILD_ENTRY} CONFIG)
-set_target_properties(${PROJECT_NAME} PROPERTIES
-    LIBRARY_OUTPUT_DIRECTORY_${CONFIG} ${CMAKE_CURRENT_SOURCE_DIR}/lib
-    ARCHIVE_OUTPUT_DIRECTORY_${CONFIG} ${CMAKE_CURRENT_SOURCE_DIR}/lib
-    RUNTIME_OUTPUT_DIRECTORY_${CONFIG} ${CMAKE_CURRENT_SOURCE_DIR}/lib
-)
-endforeach()
-set_target_properties(${PROJECT_NAME} PROPERTIES
-    LIBRARY_OUTPUT_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/lib
-    ARCHIVE_OUTPUT_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/lib
-    RUNTIME_OUTPUT_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/lib
-    OUTPUT_NAME ${PROJECT_NAME}$<$<CONFIG:Debug>:d>
-)
+set(libs_path ${CMAKE_CURRENT_SOURCE_DIR}/libs)
+set(config_path ${CMAKE_CURRENT_SOURCE_DIR}/libs_dep.json)
+get_libs_dep(${libs_path} ${config_path} ${PROJECT_NAME}_TARGETS_LINK_PRJ)
+make_library(PREBUILT_${PROJECT_NAME} ${PROJECT_NAME}_INCLUDE)
+if(NOT PREBUILT_${PROJECT_NAME})
 foreach(TARGET_LINK_LIB ${${PROJECT_NAME}_TARGETS_LINK_PRJ})
 target_link_libraries(${PROJECT_NAME} ${TARGET_LINK_LIB})
 endforeach()
