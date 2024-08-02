@@ -27,6 +27,10 @@ struct RawDataCache
 	{
 		return socket == i_socket;
 	}
+	RawDataCache(Socket_d i_socket, internal::data::WriteData::bytes_t i_rawData, internal::data::WriteData i_writeData)
+		: socket(i_socket), rawData(i_rawData), writeData(i_writeData)
+	{
+	}
 	Socket_d socket;
 	internal::data::WriteData::bytes_t rawData;
 	internal::data::WriteData writeData;
@@ -123,7 +127,7 @@ static void HandleReadStream(SocketReactor* thisReactor, Socket_d clientSocket)
 			return;
 		}
 		lock.unlock();
-		internal::data::ReadData readData(bytes, *clientIt->get());
+		internal::data::ReadData readData{bytes, *clientIt->get()};
 		if (utils::Access<AccessKey>(eventIt->second.cb_handleAction).Emit(&HandleImplement::HandleEvent, reinterpret_cast<void*>(&readData)).value())
 		{
 			lock.lock();
@@ -260,7 +264,7 @@ static void HandleCloseSocket(SocketReactor* thisReactor, Socket_d clientSocket)
 
 SocketReactor::SocketReactor(InitType i_initType, Socket_AF i_socketAF, std::string i_address, PORT i_port)
 	: m_initType(i_initType), m_nativeHandle(nullptr)
-	, m_workersConfig(utils::threadpool_config(i_initType == InitType::Connect ? k_clientWorkers : std::thread::hardware_concurrency()))
+	, m_workersConfig(utils::threadpool_config{i_initType == InitType::Connect ? k_clientWorkers : std::thread::hardware_concurrency()})
 	, m_workerThreadpool(m_workersConfig)
 	, m_socketData(i_socketAF, SOCK_STREAM, IPPROTO_TCP, i_address, i_port)
 {
