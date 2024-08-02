@@ -1,4 +1,10 @@
-function(make_library output_path ouput_include)
+macro(make_library output_path ouput_include found)
+# Add source to this project's executable.
+set(SRC_DIR ${CMAKE_CURRENT_SOURCE_DIR}/src)
+file(GLOB_RECURSE SOURCES CONFIGURE_DEPENDS ${SRC_DIR}/*.cpp)
+set(INCLUDE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/include)
+file(GLOB_RECURSE HEADERS CONFIGURE_DEPENDS ${INCLUDE_DIR}/*.h)
+
 set(PREBUILT_PATH ${CMAKE_CURRENT_SOURCE_DIR}/lib)
 find_library(MYSELF_FIND_d NAMES ${PROJECT_NAME}_${CMAKE_SYSTEM_PROCESSOR}d PATHS ${PREBUILT_PATH} NO_CACHE)
 find_library(MYSELF_FIND_r NAMES ${PROJECT_NAME}_${CMAKE_SYSTEM_PROCESSOR} PATHS ${PREBUILT_PATH} NO_CACHE)
@@ -8,13 +14,9 @@ message("use variable PREBUILT_${PROJECT_NAME} to obtain lib path")
 message("use variable ${PROJECT_NAME}_INCLUDE to obtain include dir")
 set(${output_path} debug ${MYSELF_FIND_d} optimized ${MYSELF_FIND_r} PARENT_SCOPE)
 set(${ouput_include} ${INCLUDE_DIR} PARENT_SCOPE)
+set(${found} TRUE)
 else()
 message("building library ${PROJECT_NAME}")
-# Add source to this project's executable.
-set(SRC_DIR ${CMAKE_CURRENT_SOURCE_DIR}/src)
-file(GLOB_RECURSE SOURCES CONFIGURE_DEPENDS ${SRC_DIR}/*.cpp)
-set(INCLUDE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/include)
-file(GLOB_RECURSE HEADERS CONFIGURE_DEPENDS ${INCLUDE_DIR}/*.h)
 
 add_library(${PROJECT_NAME} ${SOURCES})
 target_sources(${PROJECT_NAME} PUBLIC
@@ -37,4 +39,4 @@ set_target_properties(${PROJECT_NAME} PROPERTIES
     OUTPUT_NAME ${PROJECT_NAME}_${CMAKE_SYSTEM_PROCESSOR}$<$<CONFIG:Debug>:d>
 )
 endif()
-endfunction()
+endmacro()
