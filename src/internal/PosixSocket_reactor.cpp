@@ -473,9 +473,10 @@ ISocketReactor::ReactorResult SocketReactor::Run()
 		{
 			return make_error<Error>(ErrorCode::InternalError, "getaddrinfo failed {}", gai_strerror(r));
 		}
+		std::shared_lock sharedLock(m_mutex);
 		for (rp = result; rp != NULL; rp = rp->ai_next)
 		{
-			int r = bind(m_sockets.front()->GetNativeSocket(), result->ai_addr, (int)result->ai_addrlen);
+			int r = bind(m_sockets.front()->GetNativeSocket(), rp->ai_addr, (int)rp->ai_addrlen);
 			if (r == 0 || errno == EINPROGRESS)
 			{
 				break;
@@ -485,7 +486,8 @@ ISocketReactor::ReactorResult SocketReactor::Run()
 			Socket_d nativeSocket = socket->Open(m_socketData.socketAF, m_socketData.socketType, m_socketData.socketProtocol);
 			if (nativeSocket == BS_INVALID_SOCKET)
 			{
-				continue;
+				rp = NULL;
+				break;
 			}
 			m_sockets.emplace_back(std::move(socket));
 		}
@@ -500,10 +502,12 @@ ISocketReactor::ReactorResult SocketReactor::Run()
 			return make_error<Error>(ErrorCode::InternalError, "listen failed {}", errno);
 		}
 
+		sharedLock.unlock();
 		{
 			std::unique_lock lock(m_mutex);
 			m_status = Status::Running;
 		}
+		sharedLock.lock();
 		struct epoll_event ev;
 		ev.data.fd = m_sockets.front()->GetNativeSocket();
 		ev.events = EPOLLIN | EPOLLET;
@@ -513,7 +517,6 @@ ISocketReactor::ReactorResult SocketReactor::Run()
 		}
 
 		struct epoll_event events[k_MaxEvents];
-		std::shared_lock sharedLock(m_mutex);
 		while (m_status == Status::Running)
 		{
 			sharedLock.unlock();
@@ -573,9 +576,10 @@ ISocketReactor::ReactorResult SocketReactor::Run()
 		{
 			return make_error<Error>(ErrorCode::InternalError, "getaddrinfo failed {}", gai_strerror(r));
 		}
+		std::shared_lock sharedLock(m_mutex);
 		for (rp = result; rp != NULL; rp = rp->ai_next)
 		{
-			int r = connect(m_sockets.front()->GetNativeSocket(), result->ai_addr, (int)result->ai_addrlen);
+			int r = connect(m_sockets.front()->GetNativeSocket(), rp->ai_addr, (int)rp->ai_addrlen);
 			if (r == 0 || errno == EINPROGRESS)
 			{
 				break;
@@ -585,7 +589,8 @@ ISocketReactor::ReactorResult SocketReactor::Run()
 			Socket_d nativeSocket = socket->Open(m_socketData.socketAF, m_socketData.socketType, m_socketData.socketProtocol);
 			if (nativeSocket == BS_INVALID_SOCKET)
 			{
-				continue;
+				rp = NULL;
+				break;
 			}
 			m_sockets.emplace_back(std::move(socket));
 		}

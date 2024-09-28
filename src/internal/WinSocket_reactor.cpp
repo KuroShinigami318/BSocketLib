@@ -336,9 +336,10 @@ ISocketReactor::ReactorResult SocketReactor::Run()
 		{
 			return make_error<Error>(ErrorCode::InternalError, "getaddrinfo failed {}", WSAGetLastError());
 		}
+		std::shared_lock sharedLock(m_mutex);
 		for (rp = addrlocal; rp != NULL; rp = rp->ai_next)
 		{
-			int result = bind(m_sockets.front()->GetNativeSocket(), addrlocal->ai_addr, (int)addrlocal->ai_addrlen);
+			int result = bind(m_sockets.front()->GetNativeSocket(), rp->ai_addr, (int)rp->ai_addrlen);
 			if (result != SOCKET_ERROR)
 			{
 				break;
@@ -348,7 +349,8 @@ ISocketReactor::ReactorResult SocketReactor::Run()
 			Socket_d nativeSocket = socket->Open(m_socketData.socketAF, m_socketData.socketType, m_socketData.socketProtocol);
 			if (nativeSocket == INVALID_SOCKET)
 			{
-				continue;
+				rp = NULL;
+				break;
 			}
 			m_sockets.emplace_back(std::move(socket));
 		}
@@ -362,12 +364,13 @@ ISocketReactor::ReactorResult SocketReactor::Run()
 			return make_error<Error>(ErrorCode::InternalError, "listen failed {}", WSAGetLastError());
 		}
 
+		sharedLock.unlock();
 		{
 			std::unique_lock lock(m_mutex);
 			m_status = Status::Running;
 		}
+		sharedLock.lock();
 		Socket_d acceptSocket = INVALID_SOCKET;
-		std::shared_lock sharedLock(m_mutex);
 		while (m_status == Status::Running)
 		{
 			sharedLock.unlock();
@@ -408,9 +411,10 @@ ISocketReactor::ReactorResult SocketReactor::Run()
 		{
 			return make_error<Error>(ErrorCode::InternalError, "getaddrinfo failed {}", WSAGetLastError());
 		}
+		std::shared_lock sharedLock(m_mutex);
 		for (rp = addrlocal; rp != NULL; rp = rp->ai_next)
 		{
-			int result = connect(m_sockets.front()->GetNativeSocket(), addrlocal->ai_addr, (int)addrlocal->ai_addrlen);
+			int result = connect(m_sockets.front()->GetNativeSocket(), rp->ai_addr, (int)rp->ai_addrlen);
 			if (result != SOCKET_ERROR)
 			{
 				break;
@@ -420,7 +424,8 @@ ISocketReactor::ReactorResult SocketReactor::Run()
 			Socket_d nativeSocket = socket->Open(m_socketData.socketAF, m_socketData.socketType, m_socketData.socketProtocol);
 			if (nativeSocket == INVALID_SOCKET)
 			{
-				continue;
+				rp = NULL;
+				break;
 			}
 			m_sockets.emplace_back(std::move(socket));
 		}
@@ -428,7 +433,6 @@ ISocketReactor::ReactorResult SocketReactor::Run()
 		{
 			return make_error<Error>(ErrorCode::InternalError, "connect failed {}", WSAGetLastError());
 		}
-		std::shared_lock sharedLock(m_mutex);
 		auto eventIt = m_eventsMap.find(SocketEvent::AcceptConnection);
 		if (eventIt == m_eventsMap.end())
 		{
