@@ -24,6 +24,7 @@ public:
 	WriteResult WriteBytes(BytesT& i_bytes);
 	SocketResult WriteBytesAsync(BytesT& i_bytes);
 	void SetBlockProcess(bool i_blocking);
+	bool IsBlockProcess() const;
 
 private:
 	friend bool operator==(const Socket_internal& lhs, const Socket_internal& rhs);

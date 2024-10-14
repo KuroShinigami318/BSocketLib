@@ -152,7 +152,7 @@ static void HandleWriteStream(SocketReactor* thisReactor, Socket_d clientSocket)
 		return;
 	}
 	std::shared_lock lock(thisReactor->*&HandleImplement::m_mutex);
-	RawDataCache* dataCache = utils::dynamic_array_buffer::find<RawDataCache>(thisReactor->*&HandleImplement::m_nativeBuffer, clientSocket);
+	RawDataCache* dataCache = *utils::dynamic_array_buffer::find<RawDataCache>(thisReactor->*&HandleImplement::m_nativeBuffer, clientSocket);
 	if (dataCache == nullptr || dataCache->rawData.empty())
 	{
 		return;
@@ -358,7 +358,7 @@ void SocketReactor::Update(float)
 	}
 	ISocket* socket = m_socketsToBeClosed.front();
 	sharedLock.unlock();
-	RawDataCache* dataCache = utils::dynamic_array_buffer::find<RawDataCache>(m_nativeBuffer, socket);
+	RawDataCache* dataCache = *utils::dynamic_array_buffer::find<RawDataCache>(m_nativeBuffer, socket);
 	const bool hasCache = dataCache != nullptr;
 	if (!hasCache)
 	{
@@ -389,7 +389,7 @@ ISocketReactor::ReactorResult SocketReactor::ProcessAsyncRawData(void* i_rawData
 	{
 		using bytes_t = internal::data::WriteData::bytes_t;
 		internal::data::WriteData& writeData = *reinterpret_cast<internal::data::WriteData*>(i_rawData);
-		RawDataCache* dataCache = utils::dynamic_array_buffer::find<RawDataCache>(m_nativeBuffer, i_socket);
+		RawDataCache* dataCache = *utils::dynamic_array_buffer::find<RawDataCache>(m_nativeBuffer, i_socket);
 		if (dataCache == nullptr)
 		{
 			dataCache = utils::dynamic_array_buffer::push<RawDataCache>(m_nativeBuffer, i_socket->GetNativeSocket(), bytes_t(writeData.begin, writeData.end), writeData);

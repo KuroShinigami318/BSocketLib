@@ -70,6 +70,11 @@ void Socket::SetBlockProcess(bool i_blocking)
 	m_socketInternal.SetBlockProcess(i_blocking);
 }
 
+bool Socket::IsBlockProcess() const
+{
+	return m_socketInternal.IsBlockProcess();
+}
+
 bool operator==(const Socket& lhs, const Socket& rhs)
 {
 	return lhs.m_socketInternal == rhs.m_socketInternal;

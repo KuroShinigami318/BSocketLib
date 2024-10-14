@@ -53,6 +53,11 @@ struct WinIOContext
 	ISocket* socket = nullptr;
 	utils::dynamic_buffers<WinIOOperation> ioOperations;
 
+	bool operator==(const WinIOContext& other) const
+	{
+		return socket == other.socket && key == other.key;
+	}
+
 	WinIOContext(ULONG_PTR i_key = 0ul, ISocket* i_socket = nullptr, SocketEvent i_eventType = SocketEvent::ReadStream, DWORD i_sentBytes = 0, DWORD i_totalBytes = 0)
 		: socket(i_socket)
 		, key(i_key)

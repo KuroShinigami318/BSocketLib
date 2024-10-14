@@ -16,14 +16,13 @@ static const uint16_t k_serverWorkers = 128;
 
 using BindIOCPResult = std::pair<internal::WinIOContext*, internal::WinIOOperation*>;
 
-static BindIOCPResult BindCompletionPort(utils::dynamic_buffers<uint8_t>& o_dynamicArray, std::shared_mutex& o_mutex, void* i_completionPort, ISocket* i_socket, SocketEvent i_eventType, unsigned int i_numThreads)
+static BindIOCPResult BindCompletionPort(utils::dynamic_buffers<uint8_t>& o_dynamicArray, void* i_completionPort, ISocket* i_socket, SocketEvent i_eventType, unsigned int i_numThreads)
 {
-	std::unique_lock lock(o_mutex);
 	if (i_socket == nullptr)
 	{
 		return BindIOCPResult(nullptr, nullptr);
 	}
-	internal::WinIOContext* ioContext = utils::dynamic_array_buffer::find_if<internal::WinIOContext>(o_dynamicArray, [i_socket](const internal::WinIOContext& i_ioContext)
+	internal::WinIOContext* ioContext = *utils::dynamic_array_buffer::find_if<internal::WinIOContext>(o_dynamicArray, [i_socket](const internal::WinIOContext& i_ioContext)
 	{
 		return i_ioContext.socket == i_socket;
 	});
@@ -133,17 +132,12 @@ void SocketReactor::CloseClient(ISocket* i_socket)
 		auto eventIt = m_eventsMap.find(SocketEvent::CloseConnection);
 		if (eventIt != m_eventsMap.end())
 		{
-			i_socket->SetBlockProcess(true);
 			lock.unlock();
 			utils::Access<AccessKey>(eventIt->second.cb_handleAction).Emit(&IEventHandler::HandleEvent, reinterpret_cast<void*>(i_socket));
 			lock.lock();
 		}
 	}
 	std::unique_lock lock(m_mutex);
-	utils::dynamic_array_buffer::erase_if<internal::WinIOContext>(m_nativeBuffer, [i_socket](const internal::WinIOContext& ioContext)
-	{
-		return ioContext.socket == i_socket;
-	});
 	std::erase_if(m_sockets, [i_socket](std::unique_ptr<ISocket>& socket)
 	{
 		return socket.get() == i_socket;
@@ -189,6 +183,7 @@ void SocketReactor::Update(float)
 					});
 				}
 				sharedLock.lock();
+				ioContext->socket->SetBlockProcess(true);
 				HandleCloseSocket(m_mutex, ioContext, m_socketsToBeClosed);
 				return;
 			}
@@ -229,6 +224,7 @@ void SocketReactor::Update(float)
 				sharedLock.lock();
 				if (shouldCloseConnection)
 				{
+					ioContext->socket->SetBlockProcess(true);
 					HandleCloseSocket(m_mutex, ioContext, m_socketsToBeClosed);
 				}
 			}
@@ -254,6 +250,7 @@ void SocketReactor::Update(float)
 								});
 							}
 							std::shared_lock sharedLock(m_mutex);
+							ioContext->socket->SetBlockProcess(true);
 							HandleCloseSocket(m_mutex, ioContext, m_socketsToBeClosed);
 						}
 					});
@@ -273,6 +270,7 @@ void SocketReactor::Update(float)
 					sharedLock.lock();
 					if (shouldCloseConnection)
 					{
+						ioContext->socket->SetBlockProcess(true);
 						HandleCloseSocket(m_mutex, ioContext, m_socketsToBeClosed);
 					}
 				}
@@ -283,24 +281,34 @@ void SocketReactor::Update(float)
 		}));
 	}
 	const bool shouldCheckCloseClient = !m_socketsToBeClosed.empty();
-	sharedLock.unlock();
 	if (shouldCheckCloseClient)
 	{
-		std::unique_lock lock(m_mutex);
-		ISocket* socket = m_socketsToBeClosed.back();
-		internal::WinIOContext* ioContext = utils::dynamic_array_buffer::find_if<internal::WinIOContext>(m_nativeBuffer, [socket](const internal::WinIOContext& i_ioContext)
+		sharedLock.unlock();
+		ISocket* socket = nullptr;
+		{
+			std::unique_lock lock(m_mutex);
+			socket = m_socketsToBeClosed.back();
+			m_socketsToBeClosed.pop_back();
+		}
+		sharedLock.lock();
+		auto ioContext = utils::dynamic_array_buffer::find_if<internal::WinIOContext>(m_nativeBuffer, [socket](const internal::WinIOContext& i_ioContext)
 		{
 			return socket == i_ioContext.socket && i_ioContext.ioOperations.empty();
 		});
-		if (ioContext != nullptr)
+		if (ioContext != m_nativeBuffer.end())
 		{
-			m_socketsToBeClosed.pop_back();
-			lock.unlock();
+			sharedLock.unlock();
 			CloseClient(socket);
-			lock.lock();
+			std::unique_lock lock(m_mutex);
+			utils::dynamic_array_buffer::erase<internal::WinIOContext>(m_nativeBuffer, ioContext);
+		}
+		else
+		{
+			sharedLock.unlock();
+			std::unique_lock lock(m_mutex);
+			m_socketsToBeClosed.emplace_back(socket);
 		}
 	}
-	sharedLock.lock();
 	std::erase_if(m_waitables, [](const utils::async_waitable<void>& i_waitable)
 	{
 		return i_waitable.HasFinished();
@@ -469,26 +477,27 @@ ISocketReactor::ReactorResult SocketReactor::ProcessAsyncRawData(void* i_rawData
 	{
 		return make_error<ISocketReactor::Error>(ISocketReactor::ErrorCode::InternalError, "invalid socket in ProcessAsyncRawData");
 	}
-	std::shared_lock sharedLock(m_mutex);
-	if (std::find(m_socketsToBeClosed.cbegin(), m_socketsToBeClosed.cend(), i_socket) != m_socketsToBeClosed.cend())
+	if (i_socket->IsBlockProcess())
 	{
 		return make_error<ISocketReactor::Error>(ISocketReactor::ErrorCode::InternalError, "socket going to be closed!");
 	}
+	std::shared_lock sharedLock(m_mutex);
 	switch (i_eventType)
 	{
 	case SocketEvent::ReadStream:
 	{
 		sharedLock.unlock();
-		BindIOCPResult bindResult = BindCompletionPort(m_nativeBuffer, m_mutex, m_nativeHandle, i_socket, i_eventType, m_workersConfig.num_threads);
+		std::unique_lock lock(m_mutex);
+		BindIOCPResult bindResult = BindCompletionPort(m_nativeBuffer, m_nativeHandle, i_socket, i_eventType, m_workersConfig.num_threads);
 		internal::WinIOContext* ioContext = bindResult.first;
 		internal::WinIOOperation* ioOperation = bindResult.second;
 		if (ioContext == nullptr)
 		{
 			std::string errorString = utils::Format("BindCompletionPort with error: {}", WSAGetLastError());
 			HandleError(Status::Shuttingdown, errorString);
-			sharedLock.lock();
 			return make_error<ISocketReactor::Error>(ISocketReactor::ErrorCode::InternalError, errorString.c_str());
 		}
+		lock.unlock();
 		sharedLock.lock();
 		if (ioContext->ioOperations.find_if([ioOperation](const internal::WinIOOperation& i_ioOperation) { return i_ioOperation.eventType == SocketEvent::ReadStream && ioOperation != &i_ioOperation; }) != ioContext->ioOperations.cend())
 		{
@@ -519,17 +528,16 @@ ISocketReactor::ReactorResult SocketReactor::ProcessAsyncRawData(void* i_rawData
 			writeData.begin = splitIt;
 			writeData.size = DATA_BUFSIZE;
 		}
-		BindIOCPResult bindResult = BindCompletionPort(m_nativeBuffer, m_mutex, m_nativeHandle, i_socket, i_eventType, m_workersConfig.num_threads);
+		std::unique_lock lock(m_mutex);
+		BindIOCPResult bindResult = BindCompletionPort(m_nativeBuffer, m_nativeHandle, i_socket, i_eventType, m_workersConfig.num_threads);
 		internal::WinIOContext* ioContext = bindResult.first;
 		internal::WinIOOperation* ioOperation = bindResult.second;
 		if (ioContext == nullptr)
 		{
 			std::string errorString = utils::Format("BindCompletionPort with error: {}", WSAGetLastError());
 			HandleError(Status::Shuttingdown, errorString);
-			sharedLock.lock();
 			return make_error<ISocketReactor::Error>(ISocketReactor::ErrorCode::InternalError, errorString.c_str());
 		}
-		sharedLock.lock();
 		memcpy(ioOperation->buffers, &*writeData.begin, writeData.size);
 		ioOperation->wsaBuffers.buf = ioOperation->buffers;
 		ioOperation->wsaBuffers.len = writeData.size;
@@ -547,7 +555,7 @@ ISocketReactor::ReactorResult SocketReactor::ProcessAsyncRawData(void* i_rawData
 	break;
 	case SocketEvent::CloseConnection:
 	{
-		internal::WinIOContext* ioContext = utils::dynamic_array_buffer::find_if<internal::WinIOContext>(m_nativeBuffer, [i_socket](const internal::WinIOContext& i_ioContext)
+		internal::WinIOContext* ioContext = *utils::dynamic_array_buffer::find_if<internal::WinIOContext>(m_nativeBuffer, [i_socket](const internal::WinIOContext& i_ioContext)
 		{
 			return i_ioContext.socket == i_socket;
 		});
@@ -555,6 +563,7 @@ ISocketReactor::ReactorResult SocketReactor::ProcessAsyncRawData(void* i_rawData
 		{
 			return make_error<ISocketReactor::Error>(ISocketReactor::ErrorCode::InternalError, "IOContext not found with socket: {}", i_socket->GetNativeSocket());
 		}
+		ioContext->socket->SetBlockProcess(true);
 		HandleCloseSocket(m_mutex, ioContext, m_socketsToBeClosed);
 	}
 	break;

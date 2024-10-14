@@ -26,4 +26,5 @@ public:
 protected:
 	friend class SocketReactor;
 	virtual void SetBlockProcess(bool i_blocking) = 0;
+	virtual bool IsBlockProcess() const = 0;
 };

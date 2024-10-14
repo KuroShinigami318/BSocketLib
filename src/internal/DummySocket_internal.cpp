@@ -74,6 +74,11 @@ void Socket_internal::SetBlockProcess(bool i_blocking)
 
 }
 
+bool Socket_internal::IsBlockProcess() const
+{
+	return true;
+}
+
 bool operator==(const Socket_internal& lhs, const Socket_internal& rhs)
 {
 	return lhs.m_socket_d == rhs.m_socket_d;

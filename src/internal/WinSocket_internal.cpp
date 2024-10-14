@@ -160,6 +160,11 @@ void Socket_internal::SetBlockProcess(bool i_blocking)
 	m_isBlocking.store(i_blocking, std::memory_order_relaxed);
 }
 
+bool Socket_internal::IsBlockProcess() const
+{
+	return m_isBlocking.load(std::memory_order_relaxed);
+}
+
 bool operator==(const Socket_internal& lhs, const Socket_internal& rhs)
 {
 	return lhs.m_socket_d == rhs.m_socket_d;
