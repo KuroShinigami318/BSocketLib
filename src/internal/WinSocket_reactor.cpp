@@ -36,7 +36,7 @@ static BindIOCPResult BindCompletionPort(utils::dynamic_buffers<uint8_t>& o_dyna
 	{
 		return BindIOCPResult(nullptr, nullptr);
 	}
-	const size_t lastIndex = utils::dynamic_array_buffer::size<internal::WinIOContext>(o_dynamicArray) - 1;
+	const size_t lastIndex = o_dynamicArray.size() - 1;
 	i_completionPort = CreateIoCompletionPort((HANDLE) i_socket->GetNativeSocket(), i_completionPort, (ULONG_PTR)ioContext, i_numThreads);
 	if (i_completionPort == nullptr)
 	{
