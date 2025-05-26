@@ -42,7 +42,7 @@ ISocket::SocketResult Socket::ReadBytesAsync(size_t i_size)
 	{
 		return readResult.unwrapErr();
 	}
-	return Ok();
+	return utils::Ok();
 }
 
 ISocket::WriteResult Socket::WriteBytes(BytesT& i_bytes)
@@ -62,7 +62,7 @@ ISocket::SocketResult Socket::WriteBytesAsync(BytesT& i_bytes)
 	{
 		return writeResult.unwrapErr();
 	}
-	return Ok();
+	return utils::Ok();
 }
 
 void Socket::SetBlockProcess(bool i_blocking)

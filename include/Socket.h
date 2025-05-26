@@ -20,7 +20,7 @@ public:
 
 private:
 	void SetBlockProcess(bool i_blocking) override;
-	bool IsBlockProcess() const override;
+	bool IsBlockProcess() const override;;
 	friend bool operator==(const Socket& lhs, const Socket& rhs);
 	Socket_internal m_socketInternal;
 };

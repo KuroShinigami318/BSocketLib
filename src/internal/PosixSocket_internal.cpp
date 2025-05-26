@@ -36,7 +36,7 @@ Socket_internal::SocketResult Socket_internal::Close()
 		return make_error<SocketError>(SocketErrorCode::InternalSocketError);
 	}
 	m_socket_d = BS_INVALID_SOCKET;
-	return Ok();
+	return utils::Ok();
 }
 
 Socket_internal::ReadResult Socket_internal::ReadBytes(size_t i_size)
@@ -71,7 +71,7 @@ Socket_internal::SocketResult Socket_internal::ReadBytesAsync(size_t i_size)
 	{
 		return make_inner_error<SocketError>(SocketErrorCode::InternalSocketError, result.unwrapErr());
 	}
-	return Ok();
+	return utils::Ok();
 }
 
 Socket_internal::WriteResult Socket_internal::WriteBytes(BytesT& i_bytes)
@@ -107,7 +107,7 @@ Socket_internal::SocketResult Socket_internal::WriteBytesAsync(BytesT& i_bytes)
 	{
 		return make_inner_error<SocketError>(SocketErrorCode::InternalSocketError, result.unwrapErr());
 	}
-	return Ok();
+	return utils::Ok();
 }
 
 void Socket_internal::SetBlockProcess(bool i_blocking)

@@ -52,7 +52,7 @@ ISocketReactor::ReactorResult SocketReactor::RegisterEventHandler(SocketEvent i_
 	IEventHandler* eventHandler = eventData.eventHandler.get();
 	eventHandler->m_connection = eventMap.first->second.cb_handleAction.Connect(eventHandler);
 
-	return Ok();
+	return utils::Ok();
 }
 
 ISocketReactor::ReactorResult SocketReactor::DeregisterEventHandler(SocketEvent i_event)
@@ -67,5 +67,5 @@ ISocketReactor::ReactorResult SocketReactor::DeregisterEventHandler(SocketEvent 
 		return make_error<Error>(ErrorCode::InternalError, "{} event is not registered!", i_event);
 	}
 	m_eventsMap.erase(i_event);
-	return Ok();
+	return utils::Ok();
 }

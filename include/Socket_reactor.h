@@ -3,7 +3,10 @@
 #include "ISocket_reactor.h"
 #include "ISocket.h"
 #include "dynamic_array_buffer.h"
-#include <unordered_map>
+
+using SocketNativeBufferT = utils::dynamic_buffers<uint8_t>;
+using SocketMapT = utils::dynamic_buffers<SocketNativeBufferT::iterator>;
+using SocketsT = utils::dynamic_buffers<ISocket>;
 
 class SocketReactor : public ISocketReactor
 {
@@ -47,13 +50,13 @@ protected:
 
 	SocketData m_socketData;
 	void* m_nativeHandle;
-	utils::dynamic_buffers<uint8_t> m_nativeBuffer;
+	SocketNativeBufferT m_nativeBuffer;
 	InitType m_initType;
 	Status m_status;
 	std::optional<Error> m_optError;
 	std::vector<utils::async_waitable<void>> m_waitables;
-	std::vector<std::unique_ptr<ISocket>> m_sockets;
-	std::vector<ISocket*> m_socketsToBeClosed;
+	SocketsT m_sockets;
+	SocketMapT m_socketsToBeClosed;
 	std::unordered_map<SocketEvent, EventData> m_eventsMap;
 	std::shared_mutex m_mutex;
 	utils::MessageSink_mt m_messageQueue;

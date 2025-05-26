@@ -2,17 +2,18 @@
 
 #include "Socket_d.h"
 #include "SocketError.h"
+#include "intrusive_base.h"
 #include <vector>
 
 class SocketReactor;
 
-class ISocket
+class ISocket : public utils::intrusive_base
 {
 public:
 	using BytesT = std::vector<char>;
-	using ReadResult = Result<BytesT, SocketError>;
-	using WriteResult = Result<size_t, SocketError>;
-	using SocketResult = Result<void, SocketError>;
+	using ReadResult = utils::Result<BytesT, SocketError>;
+	using WriteResult = utils::Result<size_t, SocketError>;
+	using SocketResult = utils::Result<void, SocketError>;
 public:
 	virtual Socket_d GetNativeSocket() const = 0;
 	virtual Socket_d Open(Socket_AF, Socket_Type, Socket_Protocol) = 0;

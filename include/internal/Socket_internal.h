@@ -11,9 +11,9 @@ class Socket_internal
 {
 public:
 	using BytesT = std::vector<char>;
-	using ReadResult = Result<BytesT, SocketError>;
-	using WriteResult = Result<size_t, SocketError>;
-	using SocketResult = Result<void, SocketError>;
+	using ReadResult = utils::Result<BytesT, SocketError>;
+	using WriteResult = utils::Result<size_t, SocketError>;
+	using SocketResult = utils::Result<void, SocketError>;
 public:
 	Socket_internal(ISocket* i_selfInterface, ISocketReactor* i_socketReactor = nullptr, Socket_d i_socket_d = BS_INVALID_SOCKET);
 	Socket_d GetNativeSocket() const;

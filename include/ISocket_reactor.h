@@ -11,7 +11,7 @@ class ISocketReactor
 public:
 	DeclareScopedEnum(ErrorCode, uint32_t, InternalError, UnsupportedPlatform, AlreadyInProgress);
 	using Error = utils::Error<ErrorCode>;
-	using ReactorResult = Result<void, Error>;
+	using ReactorResult = utils::Result<void, Error>;
 public:
 	virtual ~ISocketReactor() = default;
 	virtual ISocketReactor::ReactorResult RegisterEventHandler(SocketEvent i_event, std::unique_ptr<IEventHandler> i_eventHandler) = 0;

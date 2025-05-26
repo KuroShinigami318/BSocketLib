@@ -5,7 +5,7 @@
 
 #if defined(USE_WIN32_API)
 #include <WinSock2.h>
-#include "internal/WinIOContext.h"
+#include "internal/WinIOOperation.h"
 
 Socket_internal::Socket_internal(ISocket* i_selfInterface, ISocketReactor* i_socketReactor, Socket_d i_socket_d)
 	: m_selfInterface(i_selfInterface), m_socketReactor(i_socketReactor), m_socket_d(i_socket_d)
@@ -41,7 +41,7 @@ Socket_internal::SocketResult Socket_internal::Close()
 	}
 	m_socket_d = BS_INVALID_SOCKET;
 
-	return Ok();
+	return utils::Ok();
 }
 
 Socket_internal::ReadResult Socket_internal::ReadBytes(size_t i_size)
@@ -97,7 +97,7 @@ Socket_internal::SocketResult Socket_internal::ReadBytesAsync(size_t i_size)
 	{
 		return make_inner_error<SocketError>(SocketErrorCode::InternalSocketError, result.unwrapErr());
 	}
-	return Ok();
+	return utils::Ok();
 }
 
 Socket_internal::WriteResult Socket_internal::WriteBytes(BytesT& i_bytes)
@@ -152,7 +152,7 @@ Socket_internal::SocketResult Socket_internal::WriteBytesAsync(BytesT& i_bytes)
 	{
 		return make_inner_error<SocketError>(SocketErrorCode::InternalSocketError, result.unwrapErr());
 	}
-	return Ok();
+	return utils::Ok();
 }
 
 void Socket_internal::SetBlockProcess(bool i_blocking)
