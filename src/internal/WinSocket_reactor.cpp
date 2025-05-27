@@ -52,12 +52,12 @@ using CloseSocketFunc = utils::CallableBound<void(ISocket*)>;
 
 static void HandleCloseSocket(std::shared_mutex& o_mutex, public_buffer_iterator i_publicIterator, SocketMapT& o_socketsToBeClosed)
 {
-	if (o_socketsToBeClosed.find(i_publicIterator) == o_socketsToBeClosed.end())
+	if (o_socketsToBeClosed.find(i_publicIterator->socket->GetNativeSocket()) == o_socketsToBeClosed.end())
 	{
 		o_mutex.unlock_shared();
 		{
 			std::unique_lock lock(o_mutex);
-			o_socketsToBeClosed.emplace(i_publicIterator);
+			o_socketsToBeClosed.try_emplace(i_publicIterator->socket->GetNativeSocket(), i_publicIterator->selfIterator);
 		}
 		o_mutex.lock_shared();
 	}
@@ -267,26 +267,17 @@ void SocketReactor::Update(float)
 	const bool shouldCheckCloseClient = !m_socketsToBeClosed.empty();
 	if (shouldCheckCloseClient)
 	{
-		sharedLock.unlock();
-		public_buffer_iterator ioContext = m_nativeBuffer.end();
-		{
-			std::unique_lock lock(m_mutex);
-			ioContext = m_socketsToBeClosed.front();
-			m_socketsToBeClosed.pop_front();
-		}
-		sharedLock.lock();
+		public_buffer_iterator ioContext = m_socketsToBeClosed.begin()->second;
 		if (ioContext->ioOperations.empty())
 		{
+			ISocket* obsoleteSocket = ioContext->socket;
 			sharedLock.unlock();
-			CloseClient(ioContext->socket);
-			std::unique_lock lock(m_mutex);
-			utils::dynamic_array_buffer::erase<internal::WinIOContext>(m_nativeBuffer, ioContext->selfIterator);
-		}
-		else
-		{
-			sharedLock.unlock();
-			std::unique_lock lock(m_mutex);
-			m_socketsToBeClosed.emplace(ioContext);
+			{
+				std::unique_lock lock(m_mutex);
+				m_socketsToBeClosed.erase(ioContext->socket->GetNativeSocket());
+				utils::dynamic_array_buffer::erase<internal::WinIOContext>(m_nativeBuffer, ioContext->selfIterator);
+			}
+			CloseClient(obsoleteSocket);
 		}
 	}
 	std::erase_if(m_waitables, [](const utils::async_waitable<void>& i_waitable)

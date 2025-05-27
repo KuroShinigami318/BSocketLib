@@ -21,19 +21,20 @@ struct RawDataCache
 {
 	bool operator==(ISocket* i_socket) const
 	{
-		return i_socket ? i_socket->GetNativeSocket() == socket : false;
+		return i_socket == socket;
 	}
 	bool operator==(Socket_d i_socket) const
 	{
-		return socket == i_socket;
+		return socket ? socket->GetNativeSocket() == i_socket : false;
 	}
-	RawDataCache(Socket_d i_socket, internal::data::WriteData::bytes_t i_rawData, internal::data::WriteData i_writeData)
+	RawDataCache(ISocket* i_socket, internal::data::WriteData::bytes_t i_rawData, internal::data::WriteData i_writeData)
 		: socket(i_socket), rawData(i_rawData), writeData(i_writeData)
 	{
 	}
-	Socket_d socket;
+	ISocket* socket;
 	internal::data::WriteData::bytes_t rawData;
 	internal::data::WriteData writeData;
+	SocketNativeBufferT::iterator selfIterator = SocketNativeBufferT::s_end();
 };
 
 struct HandleImplement : SocketReactor, IEventHandler, ISocket
@@ -65,6 +66,14 @@ static void HandleAccept(SocketReactor* thisReactor, Socket_d server_fd)
 		{
 			std::unique_lock lock(thisReactor->*&HandleImplement::m_mutex);
 			socketIt = &*(thisReactor->*&HandleImplement::m_sockets).emplace<Socket>(thisReactor, acceptSocket);
+			using bytes_t = internal::data::WriteData::bytes_t;
+			internal::data::WriteData writeData;
+			utils::public_dynamic_buffer_iterator<RawDataCache, SocketNativeBufferT::buffer_t> dataCache
+			= utils::dynamic_array_buffer::push<RawDataCache>(thisReactor->*&HandleImplement::m_nativeBuffer, socketIt, bytes_t(), writeData);
+			dataCache->selfIterator = dataCache;
+			dataCache->writeData.bytes = &dataCache->rawData;
+			dataCache->writeData.begin = dataCache->writeData.end = dataCache->rawData.end();
+			dataCache->writeData.size = 0;
 		}
 		std::shared_lock sharedLock(thisReactor->*&HandleImplement::m_mutex);
 		auto& eventsMap = thisReactor->*&HandleImplement::m_eventsMap;
@@ -138,8 +147,7 @@ static void HandleWriteStream(SocketReactor* thisReactor, Socket_d clientSocket)
 #define OnError() \
 	dataCache->writeData.size = 0; \
 	dataCache->writeData.begin = dataCache->writeData.end; \
-	lock.unlock(); \
-	HandleCloseSocket(thisReactor, clientSocket);
+	HandleCloseClient(thisReactor, *dataCache, lock);
 
 	if (thisReactor == nullptr)
 	{
@@ -201,42 +209,39 @@ static void HandleWriteStream(SocketReactor* thisReactor, Socket_d clientSocket)
 	}
 }
 
-static void HandleCloseClient(SocketReactor* thisReactor, Socket_d clientSocket)
+static void HandleCloseClient(SocketReactor* thisReactor, RawDataCache& rawDataCache, std::shared_lock<std::shared_mutex>& o_sharedLock)
 {
-	using bytes_t = internal::data::WriteData::bytes_t;
-	internal::data::WriteData writeData;
-	std::unique_lock lock(thisReactor->*&HandleImplement::m_mutex);
-	utils::public_dynamic_buffer_iterator<RawDataCache, SocketNativeBufferT::buffer_t> dataCache
-	 = utils::dynamic_array_buffer::push<RawDataCache>(thisReactor->*&HandleImplement::m_nativeBuffer, clientSocket, bytes_t(), writeData);
-	dataCache->writeData.begin = dataCache->writeData.end = dataCache->rawData.end();
-	(thisReactor->*&HandleImplement::m_socketsToBeClosed).push(dataCache);
+	SocketMapT& socketsToBeClosed = thisReactor->*&HandleImplement::m_socketsToBeClosed;
+	if (socketsToBeClosed.find(rawDataCache.socket->GetNativeSocket()) != socketsToBeClosed.cend())
+	{
+		return;
+	}
+	o_sharedLock.unlock();
+	{
+		std::unique_lock lock(thisReactor->*&HandleImplement::m_mutex);
+		socketsToBeClosed.try_emplace(rawDataCache.socket->GetNativeSocket(), rawDataCache.selfIterator);
+	}
+	o_sharedLock.lock();
 }
 
 static void HandleCloseSocket(SocketReactor* thisReactor, Socket_d clientSocket)
 {
 	std::shared_lock sharedLock(thisReactor->*&HandleImplement::m_mutex);
+	SocketMapT& socketsToBeClosed = thisReactor->*&HandleImplement::m_socketsToBeClosed;
+	if (socketsToBeClosed.find(clientSocket) != socketsToBeClosed.cend())
+	{
+		return;
+	}
 	SocketNativeBufferT& nativeBuffer = thisReactor->*&HandleImplement::m_nativeBuffer;
 	auto cacheIt = utils::dynamic_array_buffer::find<RawDataCache>(nativeBuffer, clientSocket);
 	if (cacheIt == nativeBuffer.end())
-	{
-		sharedLock.unlock();
-		HandleCloseClient(thisReactor, clientSocket);
-		return;
-	}
-	SocketMapT& socketsToBeClosed = thisReactor->*&HandleImplement::m_socketsToBeClosed;
-	auto willClosedClientIt = socketsToBeClosed.find_if([clientSocket](const SocketNativeBufferT::const_iterator& iter)
-	{
-		utils::public_const_dynamic_buffer_iterator<RawDataCache, SocketNativeBufferT::buffer_t> publicIter = iter;
-		return *publicIter == clientSocket;
-	});
-	if (willClosedClientIt != socketsToBeClosed.end())
 	{
 		return;
 	}
 	sharedLock.unlock();
 	{
 		std::unique_lock lock(thisReactor->*&HandleImplement::m_mutex);
-		socketsToBeClosed.push(cacheIt);
+		socketsToBeClosed.try_emplace(clientSocket, cacheIt);
 	}
 }
 };
@@ -320,26 +325,21 @@ void SocketReactor::Update(float)
 		}
 	}
 	std::shared_lock sharedLock(m_mutex);
-	auto obsoleteSocket = m_socketsToBeClosed.find_if([](const SocketNativeBufferT::const_iterator& iter)
+	const bool shouldCheckCloseClient = !m_socketsToBeClosed.empty();
+	if (shouldCheckCloseClient)
 	{
-		utils::public_const_dynamic_buffer_iterator<RawDataCache, SocketNativeBufferT::buffer_t> i_dataCache = iter;
-		return i_dataCache->writeData.begin == i_dataCache->writeData.end || i_dataCache->writeData.size == 0;
-	});
-	const bool hasObsoleteSocket = obsoleteSocket != m_socketsToBeClosed.end();
-	if (hasObsoleteSocket)
-	{
-		utils::public_const_dynamic_buffer_iterator<RawDataCache, SocketNativeBufferT::buffer_t> publicIter = SocketNativeBufferT::const_iterator(*obsoleteSocket);
-		SocketsT::iterator foundObsoleteSocket = m_sockets.find_if([&publicIter](const ISocket& i_socket)
+		utils::public_dynamic_buffer_iterator<RawDataCache, SocketNativeBufferT::buffer_t> dataCache = m_socketsToBeClosed.cbegin()->second;
+		if (dataCache->writeData.begin == dataCache->writeData.end || dataCache->writeData.size == 0)
 		{
-			const RawDataCache& cache = *publicIter;
-			return cache == i_socket.GetNativeSocket();
-		});
-		sharedLock.unlock();
-		{
-			std::unique_lock lock(m_mutex);
-			m_nativeBuffer.erase(*obsoleteSocket);
+			ISocket* obsoleteSocket = dataCache->socket;
+			sharedLock.unlock();
+			{
+				std::unique_lock lock(m_mutex);
+				m_socketsToBeClosed.erase(dataCache->socket->GetNativeSocket());
+				m_nativeBuffer.erase(dataCache->selfIterator);
+			}
+			CloseClient(obsoleteSocket);
 		}
-		CloseClient(&*foundObsoleteSocket);
 	}
 }
 
@@ -350,11 +350,7 @@ ISocketReactor::ReactorResult SocketReactor::ProcessAsyncRawData(void* i_rawData
 		return make_error<ISocketReactor::Error>(ISocketReactor::ErrorCode::InternalError, "invalid socket in ProcessAsyncRawData");
 	}
 	std::shared_lock sharedLock(m_mutex);
-	if (m_socketsToBeClosed.find_if([i_socket](const SocketNativeBufferT::const_iterator& iter)
-		{
-			utils::public_const_dynamic_buffer_iterator<RawDataCache, SocketNativeBufferT::buffer_t> publicIter = iter;
-			return *publicIter == i_socket;
-		}) != m_socketsToBeClosed.cend())
+	if (m_socketsToBeClosed.find(i_socket->GetNativeSocket()) != m_socketsToBeClosed.cend())
 	{
 		return make_error<ISocketReactor::Error>(ISocketReactor::ErrorCode::InternalError, "socket going to be closed!");
 	}
@@ -375,8 +371,10 @@ ISocketReactor::ReactorResult SocketReactor::ProcessAsyncRawData(void* i_rawData
 			sharedLock.unlock();
 			{
 				std::unique_lock lock(m_mutex);
-				dataCache = utils::dynamic_array_buffer::push<RawDataCache>(m_nativeBuffer, i_socket->GetNativeSocket(), bytes_t(writeData.begin, writeData.end), writeData);
+				dataCache = utils::dynamic_array_buffer::push<RawDataCache>(m_nativeBuffer, i_socket, bytes_t(writeData.begin, writeData.end), writeData);
+				dataCache->selfIterator = dataCache;
 			}
+			sharedLock.lock();
 			if (dataCache == m_nativeBuffer.end())
 			{
 				return make_error<ISocketReactor::Error>(ISocketReactor::ErrorCode::InternalError, "allocate RawDataCache failed: {}");
@@ -404,8 +402,7 @@ ISocketReactor::ReactorResult SocketReactor::ProcessAsyncRawData(void* i_rawData
 		ev.events = EPOLLOUT | EPOLLET;
 		if (epoll_ctl(*(Socket_d*)m_nativeHandle, EPOLL_CTL_MOD, i_socket->GetNativeSocket(), &ev) == -1)
 		{
-			sharedLock.unlock();
-			HandleImplement::HandleCloseSocket(this, i_socket->GetNativeSocket());
+			HandleImplement::HandleCloseClient(this, *dataCache, sharedLock);
 			return make_error<Error>(ErrorCode::InternalError, "epoll_ctl failed {}", errno);
 		}
 	}

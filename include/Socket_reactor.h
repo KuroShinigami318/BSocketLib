@@ -5,7 +5,7 @@
 #include "dynamic_array_buffer.h"
 
 using SocketNativeBufferT = utils::dynamic_buffers<uint8_t>;
-using SocketMapT = utils::dynamic_buffers<SocketNativeBufferT::iterator>;
+using SocketMapT = std::unordered_map<Socket_d, SocketNativeBufferT::iterator>;
 using SocketsT = utils::dynamic_buffers<ISocket>;
 
 class SocketReactor : public ISocketReactor
