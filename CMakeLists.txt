@@ -1,12 +1,13 @@
 ﻿cmake_minimum_required (VERSION 3.23)
 
 set(PARENT_PROJECT ${PROJECT_NAME})
-project ("BSocketLib")
+file(READ ${CMAKE_CURRENT_SOURCE_DIR}/Project This_Project)
+project(${This_Project})
 set(CMAKE_CXX_STANDARD 20)
 include(get_libs_dep.cmake)
 include(make_library.cmake)
 
-set(libs_path ${CMAKE_CURRENT_SOURCE_DIR}/libs)
+set(libs_path ${CMAKE_SOURCE_DIR}/libs)
 set(config_path ${CMAKE_CURRENT_SOURCE_DIR}/libs_dep.json)
 get_libs_dep(${libs_path} ${config_path} ${PROJECT_NAME}_TARGETS_LINK_PRJ)
 make_library(PREBUILT_${PROJECT_NAME} ${PROJECT_NAME}_INCLUDE ${PROJECT_NAME}_FOUND)
