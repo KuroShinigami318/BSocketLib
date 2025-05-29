@@ -627,7 +627,6 @@ ISocketReactor::ReactorResult SocketReactor::Run()
 				{
 					if ((events[0].events & EPOLLERR) || (events[0].events & EPOLLHUP))
 					{
-						sharedLock.unlock();
 						HandleImplement::HandleCloseSocket(this, socket.GetNativeSocket());
 						HandleError(Status::Shuttingdown, "Disconnected from server!");
 					}
