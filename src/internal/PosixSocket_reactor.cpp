@@ -585,6 +585,25 @@ ISocketReactor::ReactorResult SocketReactor::Run()
 			return make_error<Error>(ErrorCode::InternalError, "epoll_ctl failed {}", errno);
 		}
 		m_status = Status::Running;
+
+		using bytes_t = internal::data::WriteData::bytes_t;
+		internal::data::WriteData writeData;
+		utils::public_dynamic_buffer_iterator<RawDataCache, SocketNativeBufferT::buffer_t> dataCache
+		= utils::dynamic_array_buffer::push<RawDataCache>(m_nativeBuffer, &m_sockets.front(), bytes_t(), writeData);
+		dataCache->selfIterator = dataCache;
+		dataCache->writeData.bytes = &dataCache->rawData;
+		dataCache->writeData.begin = dataCache->writeData.end = dataCache->rawData.end();
+		dataCache->writeData.size = 0;
+		auto eventIt = m_eventsMap.find(SocketEvent::AcceptConnection);
+		if (eventIt == m_eventsMap.end())
+		{
+			sharedLock.unlock();
+			if (!utils::Access<AccessKey>(eventIt->second.cb_handleAction).Emit(&HandleImplement::HandleEvent, reinterpret_cast<void*>(&m_sockets.front())).value())
+			{
+				HandleImplement::HandleCloseClient(this, *dataCache, sharedLock);
+				HandleError(Status::Shuttingdown, "Disconnected from server!");
+			}
+		}
 		utils::async(m_workerThreadpool, [this, socket_fd]()
 		{
 			struct epoll_event events[1];
