@@ -595,7 +595,7 @@ ISocketReactor::ReactorResult SocketReactor::Run()
 		dataCache->writeData.begin = dataCache->writeData.end = dataCache->rawData.end();
 		dataCache->writeData.size = 0;
 		auto eventIt = m_eventsMap.find(SocketEvent::AcceptConnection);
-		if (eventIt == m_eventsMap.end())
+		if (eventIt != m_eventsMap.end())
 		{
 			sharedLock.unlock();
 			if (!utils::Access<AccessKey>(eventIt->second.cb_handleAction).Emit(&HandleImplement::HandleEvent, reinterpret_cast<void*>(&m_sockets.front())).value())
@@ -610,6 +610,11 @@ ISocketReactor::ReactorResult SocketReactor::Run()
 			std::shared_lock sharedLock(m_mutex);
 			while (m_status == Status::Running)
 			{
+				if (m_sockets.empty())
+				{
+					HandleError(Status::Shuttingdown, "Disconnected from server!");
+					return;
+				}
 				ISocket& socket = m_sockets.front();
 				sharedLock.unlock();
 				int nfds = epoll_wait(*(Socket_d*)m_nativeHandle, events, 1, k_waitInMs);
