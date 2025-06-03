@@ -303,13 +303,12 @@ void SocketReactor::Shutdown()
 	m_status = Status::Shuttingdown;
 	utils::Epilogue cleanup([this]() { m_status = Status::Shutdowned; });
 	auto eventIt = m_eventsMap.find(SocketEvent::ShuttingDown);
-	if (eventIt == m_eventsMap.end())
+	if (eventIt != m_eventsMap.end())
 	{
-		return;
+		lock.unlock();
+		utils::Access<AccessKey>(eventIt->second.cb_handleAction).Emit(&IEventHandler::HandleEvent, nullptr);
+		lock.lock();
 	}
-	lock.unlock();
-	utils::Access<AccessKey>(eventIt->second.cb_handleAction).Emit(&IEventHandler::HandleEvent, nullptr);
-	lock.lock();
 	free(m_nativeHandle);
 	utils::dynamic_array_buffer::deallocate<RawDataCache>(m_nativeBuffer);
 	m_sockets.clear();

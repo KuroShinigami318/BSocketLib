@@ -107,13 +107,12 @@ void SocketReactor::Shutdown()
 	m_status = Status::Shuttingdown;
 	utils::Epilogue cleanup([this]() { m_status = Status::Shutdowned; });
 	auto eventIt = m_eventsMap.find(SocketEvent::ShuttingDown);
-	if (eventIt == m_eventsMap.end())
+	if (eventIt != m_eventsMap.end())
 	{
-		return;
+		lock.unlock();
+		utils::Access<AccessKey>(eventIt->second.cb_handleAction).Emit(&IEventHandler::HandleEvent, nullptr);
+		lock.lock();
 	}
-	lock.unlock();
-	utils::Access<AccessKey>(eventIt->second.cb_handleAction).Emit(&IEventHandler::HandleEvent, nullptr);
-	lock.lock();
 	for (utils::async_waitable<void>& waitable : m_waitables)
 	{
 		PostQueuedCompletionStatus(m_nativeHandle, 0, 0, NULL);
