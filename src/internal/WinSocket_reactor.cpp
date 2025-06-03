@@ -106,17 +106,6 @@ void SocketReactor::Shutdown()
 	}
 	m_status = Status::Shuttingdown;
 	utils::Epilogue cleanup([this]() { m_status = Status::Shutdowned; });
-	for (utils::async_waitable<void>& waitable : m_waitables)
-	{
-		PostQueuedCompletionStatus(m_nativeHandle, 0, 0, NULL);
-	}
-	utils::dynamic_array_buffer::deallocate<internal::WinIOContext>(m_nativeBuffer);
-	m_sockets.clear();
-	WSACleanup();
-	CloseHandle(m_nativeHandle);
-	lock.unlock();
-	m_workerThreadpool.shutdown();
-	lock.lock();
 	auto eventIt = m_eventsMap.find(SocketEvent::ShuttingDown);
 	if (eventIt == m_eventsMap.end())
 	{
@@ -125,6 +114,14 @@ void SocketReactor::Shutdown()
 	lock.unlock();
 	utils::Access<AccessKey>(eventIt->second.cb_handleAction).Emit(&IEventHandler::HandleEvent, nullptr);
 	lock.lock();
+	for (utils::async_waitable<void>& waitable : m_waitables)
+	{
+		PostQueuedCompletionStatus(m_nativeHandle, 0, 0, NULL);
+	}
+	utils::dynamic_array_buffer::deallocate<internal::WinIOContext>(m_nativeBuffer);
+	m_sockets.clear();
+	WSACleanup();
+	CloseHandle(m_nativeHandle);
 }
 
 void SocketReactor::CloseClient(ISocket* i_socket)
