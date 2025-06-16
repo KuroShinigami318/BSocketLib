@@ -51,36 +51,17 @@ Socket_internal::ReadResult Socket_internal::ReadBytes(size_t i_size)
 		return make_error<SocketError>(SocketErrorCode::InvalidSocket);
 	}
 	BytesT bytes(i_size);
-	internal::WinIOOperation ioOperation;
-	ioOperation.eventType = SocketEvent::ReadStream;
-	ioOperation.overlapped.hEvent = WSACreateEvent();
-	if (ioOperation.overlapped.hEvent == NULL)
-	{
-		return make_error<SocketError>(SocketErrorCode::InternalSocketError, "WSACreateEvent failed with error: {}", WSAGetLastError());
-	}
-	utils::Epilogue cleanup([&ioOperation]() { WSACloseEvent(ioOperation.overlapped.hEvent); });
 
-	WSABUF DataBuf{};
-	DWORD RecvBytes{};
-	DWORD Flags{};
-	DataBuf.len = bytes.size();
-	DataBuf.buf = bytes.data();
-	int rc = WSARecv(m_socket_d, &DataBuf, 1, &RecvBytes, &Flags, (LPWSAOVERLAPPED) &ioOperation, NULL);
+	int rc = recv(m_socket_d, bytes.data(), bytes.size(), 0);
 	int err = 0;
 	if ((rc == SOCKET_ERROR) &&
 		(WSA_IO_PENDING != (err = WSAGetLastError()))) {
-		return make_error<SocketError>(SocketErrorCode::InternalSocketError, "WSARecv failed with error: {}", err);
+		return make_error<SocketError>(SocketErrorCode::InternalSocketError, "recv failed with error: {}", err);
 	}
-
-	rc = WSAWaitForMultipleEvents(1, &ioOperation.overlapped.hEvent, TRUE, INFINITE, TRUE);
-	if (rc == WSA_WAIT_FAILED)
+	auto lastReceivedBytesIt = bytes.begin() + rc;
+	if (lastReceivedBytesIt != bytes.end())
 	{
-		return make_error<SocketError>(SocketErrorCode::InternalSocketError, "WSAWaitForMultipleEvents failed with error: {}", WSAGetLastError());
-	}
-	rc = WSAGetOverlappedResult(m_socket_d, (LPWSAOVERLAPPED) &ioOperation, &RecvBytes, FALSE, &Flags);
-	if (rc == FALSE)
-	{
-		return make_error<SocketError>(SocketErrorCode::InternalSocketError, "WSARecv failed with error: {}", WSAGetLastError());
+		bytes.erase(lastReceivedBytesIt, bytes.end());
 	}
 	return bytes;
 }
@@ -106,37 +87,13 @@ Socket_internal::WriteResult Socket_internal::WriteBytes(BytesT& i_bytes)
 	{
 		return make_error<SocketError>(SocketErrorCode::InvalidSocket);
 	}
-	internal::WinIOOperation ioOperation;
-	ioOperation.eventType = SocketEvent::WriteStream;
-	ioOperation.overlapped.hEvent = WSACreateEvent();
-	if (ioOperation.overlapped.hEvent == NULL)
-	{
-		return make_error<SocketError>(SocketErrorCode::InternalSocketError, "WSACreateEvent failed with error: {}", WSAGetLastError());
-	}
-	utils::Epilogue cleanup([&ioOperation]() { WSACloseEvent(ioOperation.overlapped.hEvent); });
-	WSABUF DataBuf{};
-	DWORD SendBytes{};
-	DWORD Flags{};
-	DataBuf.len = i_bytes.size();
-	DataBuf.buf = i_bytes.data();
-	int rc = WSASend(m_socket_d, &DataBuf, 1, &SendBytes, 0, (LPWSAOVERLAPPED) &ioOperation, NULL);
+	int rc = send(m_socket_d, i_bytes.data(), i_bytes.size(), 0);
 	int err = 0;
 	if ((rc == SOCKET_ERROR) &&
 		(WSA_IO_PENDING != (err = WSAGetLastError()))) {
-		return make_error<SocketError>(SocketErrorCode::InternalSocketError, "WSASend failed with error: {}", err);
+		return make_error<SocketError>(SocketErrorCode::InternalSocketError, "send failed with error: {}", err);
 	}
-
-	rc = WSAWaitForMultipleEvents(1, &ioOperation.overlapped.hEvent, TRUE, INFINITE, TRUE);
-	if (rc == WSA_WAIT_FAILED)
-	{
-		return make_error<SocketError>(SocketErrorCode::InternalSocketError, "WSAWaitForMultipleEvents failed with error: {}", WSAGetLastError());
-	}
-	rc = WSAGetOverlappedResult(m_socket_d, (LPWSAOVERLAPPED) &ioOperation, &SendBytes, FALSE, &Flags);
-	if (rc == FALSE)
-	{
-		return make_error<SocketError>(SocketErrorCode::InternalSocketError, "WSASend failed with error: {}", WSAGetLastError());
-	}
-	return (size_t) SendBytes;
+	return (size_t) rc;
 }
 
 Socket_internal::SocketResult Socket_internal::WriteBytesAsync(BytesT& i_bytes)

@@ -47,9 +47,15 @@ Socket_internal::ReadResult Socket_internal::ReadBytes(size_t i_size)
 	}
 
 	BytesT bytes(i_size);
-	if (recv(m_socket_d, bytes.data(), bytes.size(), 0) < 0)
+	int rc = recv(m_socket_d, bytes.data(), bytes.size(), 0);
+	if (rc < 0)
 	{
 		return make_error<SocketError>(SocketErrorCode::InternalSocketError, "read failed with error: {}", errno);
+	}
+	auto lastReceivedBytesIt = bytes.begin() + rc;
+	if (lastReceivedBytesIt != bytes.end())
+	{
+		bytes.erase(lastReceivedBytesIt, bytes.end());
 	}
 	return bytes;
 }
