@@ -15,6 +15,7 @@ public:
 	using WriteResult = utils::Result<size_t, SocketError>;
 	using SocketResult = utils::Result<void, SocketError>;
 public:
+	virtual std::string GetIPAddress() const = 0;
 	virtual Socket_d GetNativeSocket() const = 0;
 	virtual Socket_d Open(Socket_AF, Socket_Type, Socket_Protocol) = 0;
 	virtual bool Close() = 0;

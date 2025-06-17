@@ -16,6 +16,7 @@ public:
 	using SocketResult = utils::Result<void, SocketError>;
 public:
 	Socket_internal(ISocket* i_selfInterface, ISocketReactor* i_socketReactor = nullptr, Socket_d i_socket_d = BS_INVALID_SOCKET);
+	std::string GetIPAddressSocket() const;
 	Socket_d GetNativeSocket() const;
 	Socket_d Open(Socket_AF, Socket_Type, Socket_Protocol);
 	SocketResult Close();

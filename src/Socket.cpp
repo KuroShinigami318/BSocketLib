@@ -10,6 +10,11 @@ Socket::~Socket()
 	Close();
 }
 
+std::string Socket::GetIPAddress() const
+{
+	return m_socketInternal.GetIPAddressSocket();
+}
+
 Socket_d Socket::GetNativeSocket() const
 {
 	return m_socketInternal.GetNativeSocket();

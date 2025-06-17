@@ -6,11 +6,27 @@
 #if defined(USE_POSIX_API)
 #include <errno.h>
 #include <fcntl.h>
+#include <arpa/inet.h>
 #include <sys/socket.h>
 
 Socket_internal::Socket_internal(ISocket* i_selfInterface, ISocketReactor* i_socketReactor, Socket_d i_socket_d)
 	: m_selfInterface(i_selfInterface), m_socketReactor(i_socketReactor), m_socket_d(i_socket_d)
 {
+}
+
+std::string Socket_internal::GetIPAddressSocket() const
+{
+	if (m_socket_d == BS_INVALID_SOCKET)
+	{
+		return "";
+	}
+	struct sockaddr_in addr{};
+	socklen_t addr_size = sizeof(addr);
+	int result = getpeername(m_socket_d, (struct sockaddr*)&addr, &addr_size);
+	if (result != 0) {
+		return "";
+	}
+	return inet_ntoa(addr.sin_addr);
 }
 
 Socket_d Socket_internal::GetNativeSocket() const

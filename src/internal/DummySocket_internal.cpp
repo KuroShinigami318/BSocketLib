@@ -14,6 +14,11 @@ Socket_d Socket_internal::Open(Socket_AF i_socketAF, Socket_Type i_socketType, S
 	return m_socket_d;
 }
 
+std::string Socket_internal::GetIPAddressSocket() const
+{
+	return "";
+}
+
 Socket_d Socket_internal::GetNativeSocket() const
 {
 	return m_socket_d;

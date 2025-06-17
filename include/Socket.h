@@ -10,6 +10,7 @@ class Socket : public ISocket
 public:
 	Socket(ISocketReactor* i_socketReactor = nullptr, Socket_d i_socket_d = BS_INVALID_SOCKET);
 	~Socket();
+	std::string GetIPAddress() const override;
 	Socket_d GetNativeSocket() const override;
 	Socket_d Open(Socket_AF, Socket_Type, Socket_Protocol) override;
 	bool Close() override;

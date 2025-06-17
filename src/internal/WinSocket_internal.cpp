@@ -12,6 +12,21 @@ Socket_internal::Socket_internal(ISocket* i_selfInterface, ISocketReactor* i_soc
 {
 }
 
+std::string Socket_internal::GetIPAddressSocket() const
+{
+	if (m_socket_d == BS_INVALID_SOCKET)
+	{
+		return "";
+	}
+	struct sockaddr_in addr{};
+	int addr_size = sizeof(addr);
+	int result = getpeername(m_socket_d, (struct sockaddr*)&addr, &addr_size);
+	if (result == SOCKET_ERROR) {
+		return "";
+	}
+	return inet_ntoa(addr.sin_addr);
+}
+
 Socket_d Socket_internal::GetNativeSocket() const
 {
 	return m_socket_d;
