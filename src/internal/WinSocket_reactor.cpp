@@ -16,23 +16,21 @@ static const uint16_t k_serverWorkers = 128;
 
 using BindIOCPResult = std::pair<public_buffer_iterator, internal::WinIOOperation*>;
 
-static BindIOCPResult BindCompletionPort(SocketNativeBufferT& o_dynamicArray, void* i_completionPort, ISocket* i_socket, SocketEvent i_eventType, unsigned int i_numThreads)
+static BindIOCPResult BindCompletionPort(SocketNativeBufferT& o_dynamicArray, SocketMapT& o_socketsMaps, void* i_completionPort, ISocket* i_socket, SocketEvent i_eventType, unsigned int i_numThreads)
 {
 	if (i_socket == nullptr)
 	{
 		return BindIOCPResult(o_dynamicArray.end(), nullptr);
 	}
-	public_buffer_iterator ioContext = utils::dynamic_array_buffer::find_if<internal::WinIOContext>(o_dynamicArray, [i_socket](const internal::WinIOContext& i_ioContext)
+	auto foundIt = o_socketsMaps.find(i_socket->GetNativeSocket());
+	if (foundIt != o_socketsMaps.end())
 	{
-		return i_ioContext.socket == i_socket;
-	});
-	if (ioContext != o_dynamicArray.end())
-	{
+		public_buffer_iterator ioContext = foundIt->second;
 		auto ioOperation = ioContext->ioOperations.emplace(i_eventType);
 		ioOperation->selfIterator = ioOperation;
 		return BindIOCPResult(ioContext, &*ioOperation);
 	}
-	ioContext = utils::dynamic_array_buffer::push<internal::WinIOContext>(o_dynamicArray, HashObject(i_socket), i_socket, i_eventType, 0, 0);
+	public_buffer_iterator ioContext = utils::dynamic_array_buffer::push<internal::WinIOContext>(o_dynamicArray, HashObject(i_socket), i_socket, i_eventType, 0, 0);
 	if (ioContext == o_dynamicArray.end())
 	{
 		return BindIOCPResult(o_dynamicArray.end(), nullptr);
@@ -45,10 +43,9 @@ static BindIOCPResult BindCompletionPort(SocketNativeBufferT& o_dynamicArray, vo
 		utils::dynamic_array_buffer::erase<internal::WinIOContext>(o_dynamicArray, lastIndex);
 		return BindIOCPResult(o_dynamicArray.end(), nullptr);
 	}
+	o_socketsMaps.emplace(i_socket->GetNativeSocket(), ioContext);
 	return BindIOCPResult(ioContext, &ioContext->ioOperations.back());
 }
-
-using CloseSocketFunc = utils::CallableBound<void(ISocket*)>;
 
 static void HandleCloseSocket(std::shared_mutex& o_mutex, public_buffer_iterator i_publicIterator, SocketMapT& o_socketsToBeClosed)
 {
@@ -86,14 +83,14 @@ SocketReactor::SocketReactor(InitType i_initType, Socket_AF i_socketAF, std::str
 		HandleError(Status::InitFailed, "CreateIoCompletionPort");
 		return;
 	}
-	auto socket = m_sockets.emplace<Socket>(this);
+	utils::unique_ref<ISocket> socket(utils::make_unique<Socket>(this));
 	Socket_d nativeSocket = socket->Open(i_socketAF, m_socketData.socketType, m_socketData.socketProtocol);
 	if (nativeSocket == INVALID_SOCKET)
 	{
-		m_sockets.erase(socket);
 		HandleError(Status::InitFailed, utils::Format("OpenSocket with error: {}", GetLastError()));
 		return;
 	}
+	m_sockets.emplace(nativeSocket, std::move(socket));
 	m_status = Status::InitSuccess;
 }
 
@@ -115,7 +112,9 @@ void SocketReactor::Shutdown()
 	}
 	for (utils::async_waitable<void>& waitable : m_waitables)
 	{
-		PostQueuedCompletionStatus(m_nativeHandle, 0, 0, NULL);
+		lock.unlock();
+		waitable.Wait();
+		lock.lock();
 	}
 	utils::dynamic_array_buffer::deallocate<internal::WinIOContext>(m_nativeBuffer);
 	m_sockets.clear();
@@ -136,7 +135,8 @@ void SocketReactor::CloseClient(ISocket* i_socket)
 		}
 	}
 	std::unique_lock lock(m_mutex);
-	m_sockets.erase(*i_socket);
+	i_socket->Close();
+	m_sockets.erase(i_socket->GetNativeSocket());
 }
 
 void SocketReactor::Update(float)
@@ -159,7 +159,7 @@ void SocketReactor::Update(float)
 			LPOVERLAPPED overlapped = nullptr;
 			internal::WinIOContext* ioContext = nullptr;
 			internal::WinIOOperation* ioOperation = nullptr;
-			isSuccess = GetQueuedCompletionStatus(m_nativeHandle, &bytesTransferred, (PULONG_PTR)&ioContext, &overlapped, INFINITE);
+			isSuccess = GetQueuedCompletionStatus(m_nativeHandle, &bytesTransferred, (PULONG_PTR)&ioContext, &overlapped, 0);
 
 			std::shared_lock sharedLock(m_mutex);
 			if (m_status == Status::Shuttingdown || ioContext == nullptr || overlapped == nullptr)
@@ -191,6 +191,7 @@ void SocketReactor::Update(float)
 				sharedLock.lock();
 				return;
 			}
+			std::unique_lock opLock(ioOperation->mutex);
 			switch (ioOperation->eventType)
 			{
 			case SocketEvent::ReadStream:
@@ -203,10 +204,14 @@ void SocketReactor::Update(float)
 				size_t byteToRead = 0;
 				const bool shouldCloseConnection = !utils::Access<AccessKey>(eventIt->second.cb_handleAction).Emit(&IEventHandler::HandleEvent, reinterpret_cast<void*>(&readData)).value();
 				{
+					opLock.unlock();
 					std::unique_lock lock(m_mutex);
 					ioContext->ioOperations.erase(ioOperation->selfIterator);
 				}
-				ProcessAsyncRawData(reinterpret_cast<void*>(&byteToRead), SocketEvent::ReadStream, ioContext->socket).ignoreResult();
+				if (!shouldCloseConnection)
+				{
+					ProcessAsyncRawData(reinterpret_cast<void*>(&byteToRead), SocketEvent::ReadStream, ioContext->socket).ignoreResult();
+				}
 				sharedLock.lock();
 				if (shouldCloseConnection)
 				{
@@ -222,6 +227,7 @@ void SocketReactor::Update(float)
 				{
 					utils::async(m_messageQueue, [this, ioContext, ioOperation]()
 					{
+						std::unique_lock opLock(ioOperation->mutex);
 						DWORD byteSent = 0;
 						ioOperation->wsaBuffers.buf = ioOperation->buffers + ioOperation->sentBytes;
 						ioOperation->wsaBuffers.len = ioOperation->totalBytes - ioOperation->sentBytes;
@@ -229,6 +235,7 @@ void SocketReactor::Update(float)
 						if (result == SOCKET_ERROR && (ERROR_IO_PENDING != WSAGetLastError()))
 						{
 							{
+								opLock.unlock();
 								std::unique_lock lock(m_mutex);
 								ioContext->ioOperations.erase(ioOperation->selfIterator);
 							}
@@ -244,6 +251,7 @@ void SocketReactor::Update(float)
 					sharedLock.unlock();
 					const bool shouldCloseConnection = !utils::Access<AccessKey>(eventIt->second.cb_handleAction).Emit(&IEventHandler::HandleEvent, reinterpret_cast<void*>(&sentBytes)).value();
 					{
+						opLock.unlock();
 						std::unique_lock lock(m_mutex);
 						ioContext->ioOperations.erase(ioOperation->selfIterator);
 					}
@@ -270,6 +278,7 @@ void SocketReactor::Update(float)
 			sharedLock.unlock();
 			{
 				std::unique_lock lock(m_mutex);
+				m_socketsMappedNativeContexts.erase(ioContext->socket->GetNativeSocket());
 				m_socketsToBeClosed.erase(ioContext->socket->GetNativeSocket());
 				utils::dynamic_array_buffer::erase<internal::WinIOContext>(m_nativeBuffer, ioContext->selfIterator);
 			}
@@ -312,28 +321,32 @@ ISocketReactor::ReactorResult SocketReactor::Run()
 			return make_error<Error>(ErrorCode::InternalError, "getaddrinfo failed {}", WSAGetLastError());
 		}
 		std::shared_lock sharedLock(m_mutex);
+		if (m_status != Status::InitSuccess)
+		{
+			return make_error<Error>(ErrorCode::InternalError, "SocketReactor not in InitSuccess state");
+		}
 		for (rp = addrlocal; rp != NULL; rp = rp->ai_next)
 		{
-			int result = bind(m_sockets.front().GetNativeSocket(), rp->ai_addr, (int)rp->ai_addrlen);
+			int result = bind(m_sockets.begin()->second->GetNativeSocket(), rp->ai_addr, (int)rp->ai_addrlen);
 			if (result != SOCKET_ERROR)
 			{
 				break;
 			}
-			m_sockets.pop_back();
-			auto socketIt = m_sockets.emplace<Socket>(this);
-			Socket_d nativeSocket = socketIt->Open(m_socketData.socketAF, m_socketData.socketType, m_socketData.socketProtocol);
+			m_sockets.erase(m_sockets.begin());
+			utils::unique_ref<ISocket> socket = utils::make_unique<Socket>(this);
+			Socket_d nativeSocket = socket->Open(m_socketData.socketAF, m_socketData.socketType, m_socketData.socketProtocol);
 			if (nativeSocket == INVALID_SOCKET)
 			{
 				rp = NULL;
-				m_sockets.erase(socketIt);
 				break;
 			}
+			m_sockets.emplace(nativeSocket, std::move(socket));
 		}
 		if (rp == NULL)
 		{
 			return make_error<Error>(ErrorCode::InternalError, "bind failed {}", WSAGetLastError());
 		}
-		int result = listen(m_sockets.front().GetNativeSocket(), SOMAXCONN);
+		int result = listen(m_sockets.begin()->second->GetNativeSocket(), SOMAXCONN);
 		if (result == SOCKET_ERROR)
 		{
 			return make_error<Error>(ErrorCode::InternalError, "listen failed {}", WSAGetLastError());
@@ -349,7 +362,7 @@ ISocketReactor::ReactorResult SocketReactor::Run()
 		while (m_status == Status::Running)
 		{
 			sharedLock.unlock();
-			acceptSocket = WSAAccept(m_sockets.front().GetNativeSocket(), NULL, NULL, NULL, 0);
+			acceptSocket = WSAAccept(m_sockets.begin()->second->GetNativeSocket(), NULL, NULL, NULL, 0);
 			if (acceptSocket == INVALID_SOCKET)
 			{
 				sharedLock.lock();
@@ -358,16 +371,16 @@ ISocketReactor::ReactorResult SocketReactor::Run()
 			SocketsT::iterator socketIt = m_sockets.end();
 			{
 				std::unique_lock lock(m_mutex);
-				socketIt = m_sockets.emplace<Socket>(this, acceptSocket);
+				socketIt = m_sockets.emplace(acceptSocket, utils::make_unique<Socket>(this, acceptSocket)).first;
 			}
 			sharedLock.lock();
 			auto eventIt = m_eventsMap.find(SocketEvent::AcceptConnection);
 			if (eventIt != m_eventsMap.end())
 			{
 				sharedLock.unlock();
-				if (!utils::Access<AccessKey>(eventIt->second.cb_handleAction).Emit(&IEventHandler::HandleEvent, reinterpret_cast<void*>(&*socketIt)).value())
+				if (!utils::Access<AccessKey>(eventIt->second.cb_handleAction).Emit(&IEventHandler::HandleEvent, reinterpret_cast<void*>(&*socketIt->second)).value())
 				{
-					CloseClient(&*socketIt);
+					CloseClient(&*socketIt->second);
 					sharedLock.lock();
 					continue;
 				}
@@ -375,7 +388,7 @@ ISocketReactor::ReactorResult SocketReactor::Run()
 			}
 			sharedLock.unlock();
 			size_t byteToRead = 0;
-			ProcessAsyncRawData(reinterpret_cast<void*>(&byteToRead), SocketEvent::ReadStream, &*socketIt).ignoreResult();
+			ProcessAsyncRawData(reinterpret_cast<void*>(&byteToRead), SocketEvent::ReadStream, &*socketIt->second).ignoreResult();
 			sharedLock.lock();
 		}
 	}
@@ -387,22 +400,26 @@ ISocketReactor::ReactorResult SocketReactor::Run()
 			return make_error<Error>(ErrorCode::InternalError, "getaddrinfo failed {}", WSAGetLastError());
 		}
 		std::shared_lock sharedLock(m_mutex);
+		if (m_status != Status::InitSuccess)
+		{
+			return make_error<Error>(ErrorCode::InternalError, "SocketReactor not in InitSuccess state");
+		}
 		for (rp = addrlocal; rp != NULL; rp = rp->ai_next)
 		{
-			int result = connect(m_sockets.front().GetNativeSocket(), rp->ai_addr, (int)rp->ai_addrlen);
+			int result = connect(m_sockets.begin()->second->GetNativeSocket(), rp->ai_addr, (int)rp->ai_addrlen);
 			if (result != SOCKET_ERROR)
 			{
 				break;
 			}
-			m_sockets.pop_back();
-			auto socket = m_sockets.emplace<Socket>(this);
+			m_sockets.erase(m_sockets.begin());
+			utils::unique_ref<ISocket> socket = utils::make_unique<Socket>(this);
 			Socket_d nativeSocket = socket->Open(m_socketData.socketAF, m_socketData.socketType, m_socketData.socketProtocol);
 			if (nativeSocket == INVALID_SOCKET)
 			{
 				rp = NULL;
-				m_sockets.erase(socket);
 				break;
 			}
+			m_sockets.emplace(nativeSocket, std::move(socket));
 		}
 		if (rp == NULL)
 		{
@@ -415,15 +432,19 @@ ISocketReactor::ReactorResult SocketReactor::Run()
 			goto START_RECV;
 		}
 		sharedLock.unlock();
-		if (!utils::Access<AccessKey>(eventIt->second.cb_handleAction).Emit(&IEventHandler::HandleEvent, reinterpret_cast<void*>(&m_sockets.front())).value())
+		if (!utils::Access<AccessKey>(eventIt->second.cb_handleAction).Emit(&IEventHandler::HandleEvent, reinterpret_cast<void*>(&*m_sockets.begin()->second)).value())
 		{
-			HandleError(Status::Shuttingdown, "Reject accepting connection by client!");
+			HandleError(Status::InitFailed, "Reject accepting connection by client!");
 			sharedLock.lock();
 			goto SHUTDOWN;
 		}
 		START_RECV:
+		{
+			std::unique_lock lock(m_mutex);
+			m_status = Status::Running;
+		}
 		size_t byteToRead = 0;
-		ProcessAsyncRawData(reinterpret_cast<void*>(&byteToRead), SocketEvent::ReadStream, &m_sockets.front()).ignoreResult();
+		ProcessAsyncRawData(reinterpret_cast<void*>(&byteToRead), SocketEvent::ReadStream, &*m_sockets.begin()->second).ignoreResult();
 		sharedLock.lock();
 	}
 	break;
@@ -455,13 +476,13 @@ ISocketReactor::ReactorResult SocketReactor::ProcessAsyncRawData(void* i_rawData
 	{
 		sharedLock.unlock();
 		std::unique_lock lock(m_mutex);
-		BindIOCPResult bindResult = BindCompletionPort(m_nativeBuffer, m_nativeHandle, i_socket, i_eventType, m_workersConfig.num_threads);
+		BindIOCPResult bindResult = BindCompletionPort(m_nativeBuffer, m_socketsMappedNativeContexts, m_nativeHandle, i_socket, i_eventType, m_workersConfig.num_threads);
 		public_buffer_iterator ioContext = bindResult.first;
 		internal::WinIOOperation* ioOperation = bindResult.second;
 		if (ioContext == m_nativeBuffer.end())
 		{
 			std::string errorString = utils::Format("BindCompletionPort with error: {}", WSAGetLastError());
-			HandleError(Status::Shuttingdown, errorString);
+			HandleError(Status::InitFailed, errorString);
 			return make_error<ISocketReactor::Error>(ISocketReactor::ErrorCode::InternalError, errorString.c_str());
 		}
 		lock.unlock();
@@ -496,15 +517,16 @@ ISocketReactor::ReactorResult SocketReactor::ProcessAsyncRawData(void* i_rawData
 			writeData.size = DATA_BUFSIZE;
 		}
 		std::unique_lock lock(m_mutex);
-		BindIOCPResult bindResult = BindCompletionPort(m_nativeBuffer, m_nativeHandle, i_socket, i_eventType, m_workersConfig.num_threads);
+		BindIOCPResult bindResult = BindCompletionPort(m_nativeBuffer, m_socketsMappedNativeContexts, m_nativeHandle, i_socket, i_eventType, m_workersConfig.num_threads);
 		public_buffer_iterator ioContext = bindResult.first;
 		internal::WinIOOperation* ioOperation = bindResult.second;
 		if (ioContext == m_nativeBuffer.end())
 		{
 			std::string errorString = utils::Format("BindCompletionPort with error: {}", WSAGetLastError());
-			HandleError(Status::Shuttingdown, errorString);
+			HandleError(Status::InitFailed, errorString);
 			return make_error<ISocketReactor::Error>(ISocketReactor::ErrorCode::InternalError, errorString.c_str());
 		}
+		std::unique_lock opLock(ioOperation->mutex);
 		memcpy(ioOperation->buffers, &*writeData.begin, writeData.size);
 		ioOperation->wsaBuffers.buf = ioOperation->buffers;
 		ioOperation->wsaBuffers.len = writeData.size;

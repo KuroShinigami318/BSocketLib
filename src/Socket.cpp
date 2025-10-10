@@ -7,7 +7,7 @@ Socket::Socket(ISocketReactor* i_socketReactor, Socket_d i_socket_d)
 
 Socket::~Socket()
 {
-	Close();
+	Socket::Close();
 }
 
 std::string Socket::GetIPAddress() const
