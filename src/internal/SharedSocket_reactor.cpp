@@ -25,6 +25,12 @@ SocketReactor::~SocketReactor()
 	}
 }
 
+SocketReactor::Status SocketReactor::GetStatus() const
+{
+	std::shared_lock lock(m_mutex);
+	return m_status;
+}
+
 void SocketReactor::HandleError(Status i_status, std::string i_locationFailed)
 {
 	std::unique_lock lock(m_mutex);

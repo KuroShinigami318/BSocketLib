@@ -13,7 +13,9 @@ struct WinIOOperation
 	DWORD dwFlags = 0;
 	WSABUF wsaBuffers;
 	char buffers[DATA_BUFSIZE];
+	std::vector<char> receivedBuffers;
 	utils::dynamic_buffers<WinIOOperation>::iterator selfIterator;
+	std::mutex mutex;
 
 	WinIOOperation(SocketEvent i_eventType = SocketEvent::ReadStream, DWORD i_sentBytes = 0, DWORD i_totalBytes = 0)
 		: eventType(i_eventType), sentBytes(i_sentBytes), totalBytes(i_totalBytes), selfIterator(utils::dynamic_buffers<WinIOOperation>::s_end())

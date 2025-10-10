@@ -35,6 +35,7 @@ struct RawDataCache
 	internal::data::WriteData::bytes_t rawData;
 	internal::data::WriteData writeData;
 	SocketNativeBufferT::iterator selfIterator = SocketNativeBufferT::s_end();
+	std::mutex mutex;
 };
 
 struct HandleImplement : SocketReactor, IEventHandler, ISocket
@@ -65,11 +66,12 @@ static void HandleAccept(SocketReactor* thisReactor, Socket_d server_fd)
 		ISocket* socketIt = nullptr;
 		{
 			std::unique_lock lock(thisReactor->*&HandleImplement::m_mutex);
-			socketIt = &*(thisReactor->*&HandleImplement::m_sockets).emplace<Socket>(thisReactor, acceptSocket);
+			socketIt = (thisReactor->*&HandleImplement::m_sockets).emplace(acceptSocket, utils::make_unique<Socket>(thisReactor, acceptSocket)).first->second.get();
 			using bytes_t = internal::data::WriteData::bytes_t;
 			internal::data::WriteData writeData;
 			utils::public_dynamic_buffer_iterator<RawDataCache, SocketNativeBufferT::buffer_t> dataCache
 			= utils::dynamic_array_buffer::push<RawDataCache>(thisReactor->*&HandleImplement::m_nativeBuffer, socketIt, bytes_t(), writeData);
+			std::lock_guard wrLock(dataCache->mutex);
 			dataCache->selfIterator = dataCache;
 			dataCache->writeData.bytes = &dataCache->rawData;
 			dataCache->writeData.begin = dataCache->writeData.end = dataCache->rawData.end();
@@ -124,21 +126,18 @@ static void HandleReadStream(SocketReactor* thisReactor, Socket_d clientSocket)
 	if (auto eventIt = eventsMap.find(SocketEvent::ReadStream); eventIt != eventsMap.end())
 	{
 		SocketsT& sockets = thisReactor->*&HandleImplement::m_sockets;
-		auto clientIt = sockets.find_if([clientSocket](ISocket& socket)
-		{
-			return socket.GetNativeSocket() == clientSocket;
-		});
+		auto clientIt = sockets.find(clientSocket);
 		if (clientIt == sockets.end())
 		{
 			return;
 		}
 		lock.unlock();
-		internal::data::ReadData readData{bytes, *clientIt};
+		internal::data::ReadData readData{bytes, *clientIt->second};
 		if (utils::Access<AccessKey>(eventIt->second.cb_handleAction).Emit(&HandleImplement::HandleEvent, reinterpret_cast<void*>(&readData)).value())
 		{
 			return;
 		}
-		HandleCloseSocket(thisReactor, clientIt->GetNativeSocket());
+		HandleCloseSocket(thisReactor, clientSocket);
 	}
 }
 
@@ -161,6 +160,7 @@ static void HandleWriteStream(SocketReactor* thisReactor, Socket_d clientSocket)
 	}
 	size_t totalSent = 0;
 	size_t nBytesSending = 0;
+	std::lock_guard wrLock(dataCache->mutex);
 	while (1)
 	{
 		nBytesSending = dataCache->writeData.size > DATA_BUFSIZE ? DATA_BUFSIZE : dataCache->writeData.size;
@@ -258,10 +258,10 @@ SocketReactor::SocketReactor(InitType i_initType, Socket_AF i_socketAF, std::str
 		return;
 	}
 
-	Socket_d nativeSocket = m_sockets.emplace<Socket>(this)->Open(i_socketAF, m_socketData.socketType, m_socketData.socketProtocol);
+	m_hostSocket = std::make_unique<Socket>(this);
+	Socket_d nativeSocket = m_hostSocket->Open(i_socketAF, m_socketData.socketType, m_socketData.socketProtocol);
 	if (nativeSocket == BS_INVALID_SOCKET)
 	{
-		m_sockets.pop_back();
 		HandleError(Status::InitFailed, utils::Format("OpenSocket with error: {}", errno));
 		return;
 	}
@@ -290,7 +290,7 @@ void SocketReactor::CloseClient(ISocket* i_socket)
 		}
 	}
 	std::unique_lock lock(m_mutex);
-	m_sockets.erase(*i_socket);
+	m_sockets.erase(i_socket->GetNativeSocket());
 }
 
 void SocketReactor::Shutdown()
@@ -307,6 +307,12 @@ void SocketReactor::Shutdown()
 	{
 		lock.unlock();
 		utils::Access<AccessKey>(eventIt->second.cb_handleAction).Emit(&IEventHandler::HandleEvent, nullptr);
+		lock.lock();
+	}
+	for (utils::async_waitable<void>& waitable : m_waitables)
+	{
+		lock.unlock();
+		waitable.Wait();
 		lock.lock();
 	}
 	free(m_nativeHandle);
@@ -371,9 +377,10 @@ ISocketReactor::ReactorResult SocketReactor::ProcessAsyncRawData(void* i_rawData
 			{
 				std::unique_lock lock(m_mutex);
 				dataCache = utils::dynamic_array_buffer::push<RawDataCache>(m_nativeBuffer, i_socket, bytes_t(writeData.begin, writeData.end), writeData);
-				dataCache->selfIterator = dataCache;
 			}
 			sharedLock.lock();
+			std::lock_guard wrLock(dataCache->mutex);
+			dataCache->selfIterator = dataCache;
 			if (dataCache == m_nativeBuffer.end())
 			{
 				return make_error<ISocketReactor::Error>(ISocketReactor::ErrorCode::InternalError, "allocate RawDataCache failed: {}");
@@ -384,6 +391,7 @@ ISocketReactor::ReactorResult SocketReactor::ProcessAsyncRawData(void* i_rawData
 		}
 		else if (dataCache->writeData.size <= 0)
 		{
+			std::lock_guard wrLock(dataCache->mutex);
 			dataCache->rawData = bytes_t(writeData.begin, writeData.end);
 			dataCache->writeData.bytes = &dataCache->rawData;
 			dataCache->writeData.begin = dataCache->rawData.begin();
@@ -392,6 +400,7 @@ ISocketReactor::ReactorResult SocketReactor::ProcessAsyncRawData(void* i_rawData
 		}
 		else
 		{
+			std::lock_guard wrLock(dataCache->mutex);
 			dataCache->rawData.insert(dataCache->rawData.end(), writeData.begin, writeData.end);
 			dataCache->writeData.end = dataCache->rawData.end();
 			dataCache->writeData.size += writeData.size;
@@ -443,7 +452,12 @@ ISocketReactor::ReactorResult SocketReactor::Run()
 	case InitType::Bind:
 	{
 		const int opt = 1;
-		if(setsockopt(m_sockets.front().GetNativeSocket(), SOL_SOCKET, SO_REUSEADDR, (char *)&opt, sizeof(opt)) == -1)
+		std::shared_lock sharedLock(m_mutex);
+		if (m_status != Status::InitSuccess)
+		{
+			return make_error<Error>(ErrorCode::InternalError, "SocketReactor not in InitSuccess state");
+		}
+		if(setsockopt(m_hostSocket->GetNativeSocket(), SOL_SOCKET, SO_REUSEADDR, (char *)&opt, sizeof(opt)) == -1)
 		{
 			return make_error<Error>(ErrorCode::InternalError, "setsockopt failed {}", errno);
 		}
@@ -455,21 +469,18 @@ ISocketReactor::ReactorResult SocketReactor::Run()
 		{
 			return make_error<Error>(ErrorCode::InternalError, "getaddrinfo failed {}", gai_strerror(r));
 		}
-		std::shared_lock sharedLock(m_mutex);
 		for (rp = result; rp != NULL; rp = rp->ai_next)
 		{
-			int r = bind(m_sockets.front().GetNativeSocket(), rp->ai_addr, (int)rp->ai_addrlen);
+			int r = bind(m_hostSocket->GetNativeSocket(), rp->ai_addr, (int)rp->ai_addrlen);
 			if (r == 0 || errno == EINPROGRESS)
 			{
 				break;
 			}
-			m_sockets.pop_back();
-			SocketsT::iterator socket = m_sockets.emplace<Socket>(this);
-			Socket_d nativeSocket = socket->Open(m_socketData.socketAF, m_socketData.socketType, m_socketData.socketProtocol);
+			m_hostSocket.reset(new Socket(this));
+			Socket_d nativeSocket = m_hostSocket->Open(m_socketData.socketAF, m_socketData.socketType, m_socketData.socketProtocol);
 			if (nativeSocket == BS_INVALID_SOCKET)
 			{
 				rp = NULL;
-				m_sockets.erase(socket);
 				break;
 			}
 		}
@@ -477,7 +488,7 @@ ISocketReactor::ReactorResult SocketReactor::Run()
 		{
 			return make_error<Error>(ErrorCode::InternalError, "bind failed {}", errno);
 		}
-		Socket_d server_fd = m_sockets.front().GetNativeSocket();
+		Socket_d server_fd = m_hostSocket->GetNativeSocket();
 		fcntl(server_fd, F_SETFL, O_NONBLOCK);
 		if (listen(server_fd, SOMAXCONN) != 0)
 		{
@@ -491,7 +502,7 @@ ISocketReactor::ReactorResult SocketReactor::Run()
 		}
 		sharedLock.lock();
 		struct epoll_event ev;
-		ev.data.fd = m_sockets.front().GetNativeSocket();
+		ev.data.fd = m_hostSocket->GetNativeSocket();
 		ev.events = EPOLLIN | EPOLLET;
 		if (epoll_ctl(*(Socket_d*)m_nativeHandle, EPOLL_CTL_ADD, server_fd, &ev) == -1)
 		{
@@ -505,7 +516,7 @@ ISocketReactor::ReactorResult SocketReactor::Run()
 			int nfds = epoll_wait(*(Socket_d*)m_nativeHandle, events, k_MaxEvents, k_waitInMs);
 			if (nfds == -1 && errno != EINTR)
 			{
-				HandleError(Status::Shuttingdown, utils::Format("epoll_wait failed {}", errno));
+				HandleError(Status::InitFailed, utils::Format("epoll_wait failed {}", errno));
 				goto EOL;
 			}
 			for (int i = 0; i < nfds; i++)
@@ -518,17 +529,14 @@ ISocketReactor::ReactorResult SocketReactor::Run()
 				else if((events[i].events & EPOLLERR) || (events[i].events & EPOLLHUP))
 				{
 					sharedLock.lock();
-					auto socketIt = m_sockets.find_if([socket_fd](const ISocket& i_socket)
-					{
-						return i_socket.GetNativeSocket() == socket_fd;
-					});
+					auto socketIt = m_sockets.find(socket_fd);
 					if (socketIt == m_sockets.cend())
 					{
 						sharedLock.unlock();
 						continue;
 					}
 					sharedLock.unlock();
-					HandleImplement::HandleCloseSocket(this, socketIt->GetNativeSocket());
+					HandleImplement::HandleCloseSocket(this, socket_fd);
 				}
 				else if(events[i].events & EPOLLIN)
 				{
@@ -553,20 +561,22 @@ ISocketReactor::ReactorResult SocketReactor::Run()
 			return make_error<Error>(ErrorCode::InternalError, "getaddrinfo failed {}", gai_strerror(r));
 		}
 		std::shared_lock sharedLock(m_mutex);
+		if (m_status != Status::InitSuccess)
+		{
+			return make_error<Error>(ErrorCode::InternalError, "SocketReactor not in InitSuccess state");
+		}
 		for (rp = result; rp != NULL; rp = rp->ai_next)
 		{
-			int r = connect(m_sockets.front().GetNativeSocket(), rp->ai_addr, (int)rp->ai_addrlen);
+			int r = connect(m_hostSocket->GetNativeSocket(), rp->ai_addr, (int)rp->ai_addrlen);
 			if (r == 0 || errno == EINPROGRESS)
 			{
 				break;
 			}
-			m_sockets.pop_back();
-			SocketsT::iterator socket = m_sockets.emplace<Socket>(this);
-			Socket_d nativeSocket = socket->Open(m_socketData.socketAF, m_socketData.socketType, m_socketData.socketProtocol);
+			m_hostSocket.reset(new Socket(this));
+			Socket_d nativeSocket = m_hostSocket->Open(m_socketData.socketAF, m_socketData.socketType, m_socketData.socketProtocol);
 			if (nativeSocket == BS_INVALID_SOCKET)
 			{
 				rp = NULL;
-				m_sockets.erase(socket);
 				break;
 			}
 		}
@@ -574,21 +584,29 @@ ISocketReactor::ReactorResult SocketReactor::Run()
 		{
 			return make_error<Error>(ErrorCode::InternalError, "connect failed {}", errno);
 		}
-		Socket_d socket_fd = m_sockets.front().GetNativeSocket();
+		Socket_d socket_fd = m_hostSocket->GetNativeSocket();
 		fcntl(socket_fd, F_SETFL, O_NONBLOCK);
 		struct epoll_event ev;
-		ev.data.fd = m_sockets.front().GetNativeSocket();
+		ev.data.fd = socket_fd;
 		ev.events = EPOLLIN | EPOLLET;
 		if (epoll_ctl(*(Socket_d*)m_nativeHandle, EPOLL_CTL_ADD, socket_fd, &ev) == -1)
 		{
 			return make_error<Error>(ErrorCode::InternalError, "epoll_ctl failed {}", errno);
 		}
-		m_status = Status::Running;
+
+		sharedLock.unlock();
+		{
+			std::unique_lock lock(m_mutex);
+			m_status = Status::Running;
+			m_sockets.emplace(socket_fd, std::move(m_hostSocket));
+		}
+		sharedLock.lock();
 
 		using bytes_t = internal::data::WriteData::bytes_t;
 		internal::data::WriteData writeData;
 		utils::public_dynamic_buffer_iterator<RawDataCache, SocketNativeBufferT::buffer_t> dataCache
-		= utils::dynamic_array_buffer::push<RawDataCache>(m_nativeBuffer, &m_sockets.front(), bytes_t(), writeData);
+		= utils::dynamic_array_buffer::push<RawDataCache>(m_nativeBuffer, m_sockets.begin()->second.get(), bytes_t(), writeData);
+		std::lock_guard wrLock(dataCache->mutex);
 		dataCache->selfIterator = dataCache;
 		dataCache->writeData.bytes = &dataCache->rawData;
 		dataCache->writeData.begin = dataCache->writeData.end = dataCache->rawData.end();
@@ -597,10 +615,10 @@ ISocketReactor::ReactorResult SocketReactor::Run()
 		if (eventIt != m_eventsMap.end())
 		{
 			sharedLock.unlock();
-			if (!utils::Access<AccessKey>(eventIt->second.cb_handleAction).Emit(&HandleImplement::HandleEvent, reinterpret_cast<void*>(&m_sockets.front())).value())
+			if (!utils::Access<AccessKey>(eventIt->second.cb_handleAction).Emit(&HandleImplement::HandleEvent, reinterpret_cast<void*>(m_sockets.begin()->second.get())).value())
 			{
 				HandleImplement::HandleCloseClient(this, *dataCache, sharedLock);
-				HandleError(Status::Shuttingdown, "Disconnected from server!");
+				HandleError(Status::InitFailed, "Disconnected from server!");
 			}
 		}
 		utils::async(m_workerThreadpool, [this, socket_fd]()
@@ -611,23 +629,24 @@ ISocketReactor::ReactorResult SocketReactor::Run()
 			{
 				if (m_sockets.empty())
 				{
-					HandleError(Status::Shuttingdown, "Disconnected from server!");
+					sharedLock.unlock();
+					HandleError(Status::InitFailed, "Disconnected from server!");
 					return;
 				}
-				ISocket& socket = m_sockets.front();
+				ISocket& socket = *m_sockets.begin()->second;
 				sharedLock.unlock();
 				int nfds = epoll_wait(*(Socket_d*)m_nativeHandle, events, 1, k_waitInMs);
 				if (nfds == -1 && errno != EINTR)
 				{
 					HandleImplement::HandleCloseSocket(this, socket.GetNativeSocket());
-					HandleError(Status::Shuttingdown, utils::Format("epoll_wait failed {}", errno));
+					HandleError(Status::InitFailed, utils::Format("epoll_wait failed {}", errno));
 				}
 				else if (nfds > 0)
 				{
 					if ((events[0].events & EPOLLERR) || (events[0].events & EPOLLHUP))
 					{
 						HandleImplement::HandleCloseSocket(this, socket.GetNativeSocket());
-						HandleError(Status::Shuttingdown, "Disconnected from server!");
+						HandleError(Status::InitFailed, "Disconnected from server!");
 					}
 					else if (events[0].events & EPOLLIN)
 					{

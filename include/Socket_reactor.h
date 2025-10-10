@@ -6,23 +6,24 @@
 
 using SocketNativeBufferT = utils::dynamic_buffers<uint8_t>;
 using SocketMapT = std::unordered_map<Socket_d, SocketNativeBufferT::iterator>;
-using SocketsT = utils::dynamic_buffers<ISocket>;
+using SocketsT = std::unordered_map<Socket_d, utils::unique_ref<ISocket>>;
 
 class SocketReactor : public ISocketReactor
 {
 public:
 	DeclareScopedEnum(InitType, uint8_t, Bind, Connect);
+	DeclareInnerScopedEnum(Status, uint8_t, InitFailed, InitSuccess, Running, Shuttingdown, Shutdowned);
 public:
 	SocketReactor(InitType i_initType, Socket_AF i_socketAF, std::string i_address, PORT i_port);
 	~SocketReactor();
 	void Update(float);
 	ISocketReactor::ReactorResult Run();
+	Status GetStatus() const;
 	void Shutdown();
 	ISocketReactor::ReactorResult RegisterEventHandler(SocketEvent i_event, std::unique_ptr<IEventHandler> i_eventHandler) override;
 	ISocketReactor::ReactorResult DeregisterEventHandler(SocketEvent i_event) override;
 
 protected:
-	DeclareInnerScopedEnum(Status, uint8_t, InitFailed, InitSuccess, Running, Shuttingdown, Shutdowned);
 	struct AccessKey;
 	struct EventData
 	{
@@ -55,14 +56,16 @@ protected:
 	Status m_status;
 	std::optional<Error> m_optError;
 	std::vector<utils::async_waitable<void>> m_waitables;
+	std::unique_ptr<ISocket> m_hostSocket;
 	SocketsT m_sockets;
+	SocketMapT m_socketsMappedNativeContexts;
 	SocketMapT m_socketsToBeClosed;
 	std::unordered_map<SocketEvent, EventData> m_eventsMap;
-	std::shared_mutex m_mutex;
+	mutable std::shared_mutex m_mutex;
 	utils::MessageSink_mt m_messageQueue;
 	utils::threadpool_config m_workersConfig;
 	utils::message_threadpool m_workerThreadpool;
 };
 
 DefineScopeEnumOperatorImpl(InitType, SocketReactor);
-DefinePrivateScopeEnumOperatorImpl(Status, SocketReactor);
+DefineScopeEnumOperatorImpl(Status, SocketReactor);
